@@ -40,6 +40,7 @@ impl<'a> SelectionSetFuture<'a> {
         let mut field_futs = IndexMap::new();
         let collected_fields = collect_fields(&snapshot, sel_set, &object_ty)?;
 
+        //TODO merge selection sets in field groups
         for (response_key, fields) in collected_fields {
             let field = fields
                 .first()
