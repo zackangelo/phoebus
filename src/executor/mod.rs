@@ -72,7 +72,11 @@ impl Executor {
         &mut self.resolvers
     }
 
-    pub async fn run(&mut self, query: &str) -> Result<ConstValue> {
+    pub async fn run(
+        &mut self,
+        query: &str,
+        query_resolver: &dyn ObjectResolver,
+    ) -> Result<ConstValue> {
         // let mut compiler = ApolloCompiler::new();
         // self.compiler.set_type_system_hir(self.db.type_system());
         let _query_file_id = self.compiler.add_executable(query, "query.graphql");
@@ -108,7 +112,7 @@ impl Executor {
 
         let query_fut = futures::SelectionSetFuture::new(
             Arc::new(snapshot),
-            &self.resolvers,
+            query_resolver,
             query_type,
             sel_set,
         )?;
