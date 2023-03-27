@@ -2,7 +2,7 @@ use anyhow::{anyhow, Result};
 use resolver::{ObjectResolver, Resolved};
 use std::time::Instant;
 use tracing::info;
-use value::ConstValue;
+use value::{ConstValue, Name};
 
 use crate::executor::Executor;
 
@@ -74,7 +74,8 @@ impl ObjectResolver for DogResolver {
     async fn resolve_field(&self, name: &str) -> Result<Resolved> {
         match name {
             "name" => Ok(ConstValue::String("Coco".to_owned()).into()),
-            _ => unimplemented!(),
+            "dogBreed" => Ok(ConstValue::Enum(Name::new("CHIHUAHUA")).into()),
+            _ => Err(anyhow!("invalid field {}", name)),
         }
     }
 }
@@ -90,7 +91,8 @@ impl ObjectResolver for CatResolver {
     async fn resolve_field(&self, name: &str) -> Result<Resolved> {
         match name {
             "name" => Ok(ConstValue::String("Nemo".to_owned()).into()),
-            _ => unimplemented!(),
+            "catBreed" => Ok(ConstValue::Enum(Name::new("TABBY")).into()),
+            _ => Err(anyhow!("invalid field {}", name)),
         }
     }
 }

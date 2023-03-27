@@ -4,6 +4,7 @@ use apollo_compiler::{ApolloCompiler, HirDatabase};
 
 use std::sync::Arc;
 
+mod collect_fields;
 mod futures;
 
 pub struct Executor {
@@ -68,6 +69,9 @@ impl Executor {
             .ok_or(anyhow!("query type not found"))?;
 
         let snapshot = self.compiler.snapshot();
+
+        // let pet_type = snapshot.find_object_type_by_name("Pet".to_owned());
+        // dbg!(pet_type);
 
         let query_fut = futures::SelectionSetFuture::new(
             Arc::new(snapshot),

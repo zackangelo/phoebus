@@ -13,10 +13,12 @@ interface Pet {
 
 type Dog implements Pet {
     name: String!
+    dog_breed: DogBreed!
 }
 
 type Cat implements Pet {
     name: String!
+    cat_breed: CatBreed!
 }
 
 type Person {
@@ -27,6 +29,7 @@ type Person {
 }
 
 enum DogBreed {
+    CHIHUAHUA
     RETRIEVER
     LAB
 }
