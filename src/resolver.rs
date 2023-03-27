@@ -12,8 +12,6 @@ pub trait ObjectResolver: Send + Sync {
     async fn resolve_field(&self, name: &str) -> Result<Resolved>;
 }
 
-// use futures::stream::Stream;
-
 pub enum Resolved {
     Value(ConstValue),
     Object(Box<dyn ObjectResolver>),
