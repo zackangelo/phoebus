@@ -4,11 +4,11 @@ use crate::{
 };
 use anyhow::{anyhow, Result};
 use apollo_compiler::{
-    hir::{self, Field, ObjectTypeDefinition, Selection, SelectionSet, TypeSystem},
-    ApolloCompiler, HirDatabase, RootDatabase, Snapshot,
+    hir::{self, ObjectTypeDefinition, TypeSystem},
+    ApolloCompiler, HirDatabase, RootDatabase,
 };
-use indexmap::IndexMap;
-use std::{future::Future, pin::Pin, sync::Arc, task::Poll};
+
+use std::sync::Arc;
 
 mod futures;
 

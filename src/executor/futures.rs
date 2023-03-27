@@ -12,7 +12,7 @@ use apollo_compiler::{
     Snapshot,
 };
 use indexmap::IndexMap;
-use std::{future::Future, pin::Pin, sync::Arc, task::Poll};
+use std::{future::Future, ops::DerefMut, pin::Pin, sync::Arc, task::Poll};
 
 pub struct SelectionSetFuture<'a> {
     // snapshot: Arc<Snapshot>,
@@ -84,23 +84,24 @@ impl<'a> Future for SelectionSetFuture<'a> {
     type Output = Result<ConstValue>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
-        let mut resolved_values = vec![];
-        let mut resolved_errors = vec![];
+        //nb: reference gymnastics necessary here because of
+        //mut borrowing multiple fields behind Pin, see: https://github.com/rust-lang/rust/issues/89982
+        let self_mut = &mut self.deref_mut();
+        let output_map = &mut self_mut.output_map;
+        let field_errors = &mut self_mut.field_errors;
+        let field_futs = &mut self_mut.field_futs;
 
-        self.field_futs.retain(|k, f| match f.as_mut().poll(cx) {
+        field_futs.retain(|k, f| match f.as_mut().poll(cx) {
             Poll::Ready(Ok(field_val)) => {
-                resolved_values.push((k.clone(), field_val));
+                output_map.insert(k.clone(), field_val);
                 false
             }
             Poll::Ready(Err(field_err)) => {
-                resolved_errors.push((k.clone(), field_err));
+                field_errors.insert(k.clone(), field_err);
                 false
             }
             Poll::Pending => true,
         });
-
-        self.output_map.extend(resolved_values);
-        self.field_errors.extend(resolved_errors);
 
         if self.field_futs.is_empty() {
             if !self.field_errors.is_empty() {
