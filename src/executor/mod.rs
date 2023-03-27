@@ -17,14 +17,14 @@ pub struct Ctx {
 }
 
 pub struct Executor {
-    db: RootDatabase,
+    compiler: ApolloCompiler,
     resolvers: ResolverRegistry,
 }
 
 impl Executor {
     pub fn new(schema: &str) -> Result<Self> {
         let mut compiler = ApolloCompiler::new();
-        let _ = compiler.add_type_system(schema, "schema.graphql");
+        compiler.add_type_system(schema, "schema.graphql");
 
         let diags = compiler.validate();
         let has_errors = diags.iter().filter(|d| d.data.is_error()).count() > 0;
@@ -42,13 +42,16 @@ impl Executor {
         // let type_system = compiler.db.type_system();
 
         Ok(Self {
-            db: compiler.db,
+            compiler,
             resolvers: ResolverRegistry::default(),
         })
     }
 
     pub fn query_type(&self) -> Option<Arc<ObjectTypeDefinition>> {
-        self.type_system().definitions.schema.query(&self.db)
+        self.type_system()
+            .definitions
+            .schema
+            .query(&self.compiler.db)
     }
 
     pub fn object_type_def(&self, name: &str) -> Option<Arc<ObjectTypeDefinition>> {
@@ -62,24 +65,24 @@ impl Executor {
     }
 
     pub fn type_system(&self) -> Arc<TypeSystem> {
-        self.db.type_system().clone()
+        self.compiler.db.type_system().clone()
     }
 
     pub fn resolvers_mut(&mut self) -> &mut ResolverRegistry {
         &mut self.resolvers
     }
 
-    pub async fn run(&self, query: &str) -> Result<ConstValue> {
-        let mut compiler = ApolloCompiler::new();
-        compiler.set_type_system_hir(self.db.type_system());
-        let _query_file_id = compiler.add_executable(query, "query.graphql");
+    pub async fn run(&mut self, query: &str) -> Result<ConstValue> {
+        // let mut compiler = ApolloCompiler::new();
+        // self.compiler.set_type_system_hir(self.db.type_system());
+        let _query_file_id = self.compiler.add_executable(query, "query.graphql");
 
-        let diags = compiler.validate();
+        let diags = self.compiler.validate();
         let has_errors = diags.iter().filter(|d| d.data.is_error()).count() > 0;
 
         for diag in diags.iter() {
             // if diag.data.is_error() {
-            tracing::error!("query error: {:#?}", diag);
+            tracing::error!("query error: {}", diag);
             // }
         }
 
@@ -87,7 +90,7 @@ impl Executor {
             return Err(anyhow!("graphql had errors"));
         }
 
-        let all_ops = compiler.db.all_operations();
+        let all_ops = self.compiler.db.all_operations();
 
         // dbg!(&all_ops);
 
@@ -98,10 +101,10 @@ impl Executor {
 
         let sel_set = default_query_op.selection_set();
         let query_type = default_query_op
-            .object_type(&compiler.db)
+            .object_type(&self.compiler.db)
             .ok_or(anyhow!("query type not found"))?;
 
-        let snapshot = compiler.snapshot();
+        let snapshot = self.compiler.snapshot();
 
         let query_fut = futures::SelectionSetFuture::new(
             Arc::new(snapshot),

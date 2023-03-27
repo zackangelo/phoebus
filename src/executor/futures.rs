@@ -9,10 +9,15 @@ use crate::{
 use anyhow::{anyhow, Result};
 use apollo_compiler::{
     hir::{self, Field, Selection, SelectionSet},
-    Snapshot,
+    HirDatabase, Snapshot,
 };
 use indexmap::IndexMap;
-use std::{future::Future, ops::DerefMut, pin::Pin, sync::Arc, task::Poll};
+use std::{
+    future::Future,
+    pin::Pin,
+    sync::Arc,
+    task::{Context, Poll},
+};
 
 pub struct SelectionSetFuture<'a> {
     // snapshot: Arc<Snapshot>,
@@ -83,10 +88,10 @@ impl<'a> SelectionSetFuture<'a> {
 impl<'a> Future for SelectionSetFuture<'a> {
     type Output = Result<ConstValue>;
 
-    fn poll(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         //nb: reference gymnastics necessary here because of
         //mut borrowing multiple fields behind Pin, see: https://github.com/rust-lang/rust/issues/89982
-        let self_mut = &mut self.deref_mut();
+        let self_mut = &mut *self;
         let output_map = &mut self_mut.output_map;
         let field_errors = &mut self_mut.field_errors;
         let field_futs = &mut self_mut.field_futs;
@@ -156,7 +161,13 @@ impl<'a> FieldFuture<'a> {
                     field.selection_set(),
                 )?)
             }
-            InterfaceTypeDefinition(_) => todo!(),
+            InterfaceTypeDefinition(_iface_ty) => InnerFieldFut::Resolver(resolve_iface_field(
+                field_name,
+                field.selection_set(),
+                snapshot,
+                resolver,
+                resolvers,
+            )),
             UnionTypeDefinition(_) => todo!(),
             EnumTypeDefinition(_) => todo!(),
             InputObjectTypeDefinition(_) => todo!(),
@@ -169,10 +180,54 @@ impl<'a> FieldFuture<'a> {
 impl<'a> Future for FieldFuture<'a> {
     type Output = Result<ConstValue>;
 
-    fn poll(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         match &mut self.as_mut().inner {
             InnerFieldFut::Resolver(f) => f.as_mut().poll(cx),
             InnerFieldFut::SelectionSet(f) => f.as_mut().poll(cx),
         }
     }
 }
+
+fn resolve_iface_field<'a>(
+    field_name: &'a str,
+    field_sels: &'a SelectionSet,
+    snapshot: Arc<Snapshot>,
+    resolver: &'a dyn ObjectResolver,
+    resolvers: &'a ResolverRegistry,
+) -> Pin<Box<dyn Future<Output = Result<ConstValue>> + 'a>> {
+    Box::pin(async move {
+        let field_type = resolver.resolve_field_type(field_name).await?;
+
+        let object_ty = snapshot
+            .find_object_type_by_name(field_type)
+            .ok_or(anyhow!("concrete object type not found"))?;
+
+        let sel_fut = SelectionSetFuture::new(snapshot.clone(), resolvers, object_ty, field_sels)?;
+
+        Ok(sel_fut.await?)
+    })
+}
+
+/*
+let concrete_ty_fut = resolver
+    .resolve_field_type(field_name)
+    .map(move |cty| {
+        let snapshot = snapshot.clone();
+        cty.and_then(move |cty| {
+            snapshot
+                .clone()
+                .find_object_type_by_name(cty)
+                .ok_or(anyhow!("concrete type not found"))
+        })
+    })
+    .and_then(move |object_ty| {
+        SelectionSetFuture::new(
+            snapshot.clone(),
+            resolvers,
+            object_ty,
+            field.selection_set(),
+        )
+        .unwrap()
+    });
+
+InnerFieldFut::Resolver(Box::pin(concrete_ty_fut))*/

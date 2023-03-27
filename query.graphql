@@ -4,5 +4,8 @@ query {
         firstName
         lastName
         renamedAge: age
+        pet {
+            name
+        }
     }
 }
