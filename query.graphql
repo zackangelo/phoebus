@@ -1,0 +1,8 @@
+query {
+    peopleCount,
+    person {
+        firstName
+        lastName
+        renamedAge: age
+    }
+}
