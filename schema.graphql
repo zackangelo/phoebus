@@ -23,7 +23,7 @@ type Person {
     firstName: String!
     lastName: String!
     age: Int
-    pet: Pet
+    pets: [Pet!]!
 }
 
 enum DogBreed {

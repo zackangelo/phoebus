@@ -54,7 +54,10 @@ impl ObjectResolver for PersonResolver {
             "firstName" => Ok(ConstValue::String("Zack".to_owned()).into()),
             "lastName" => Ok(ConstValue::String("Angelo".to_owned()).into()),
             "age" => Ok(ConstValue::Number(39.into()).into()),
-            "pet" => Ok(DogResolver.into()),
+            "pets" => {
+                let pets: Vec<Resolved> = vec![DogResolver.into(), CatResolver.into()];
+                Ok(pets.into())
+            }
             _ => Err(anyhow!("invalid field {}", name)),
         }
     }

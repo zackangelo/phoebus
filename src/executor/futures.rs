@@ -11,6 +11,10 @@ use apollo_compiler::{
     hir::{self, Directive, Field, ObjectTypeDefinition, Selection, SelectionSet, TypeDefinition},
     HirDatabase, Snapshot,
 };
+use futures::{
+    stream::{FuturesOrdered, FuturesUnordered},
+    TryStreamExt,
+};
 use indexmap::IndexMap;
 use std::{
     future::Future,
@@ -363,7 +367,18 @@ fn resolve_to_value<'a>(
 
                 Ok(obj_fut.await?)
             }
-            Resolved::Array(arr) => todo!(),
+            Resolved::Array(arr) => {
+                let mut futs = FuturesOrdered::new();
+
+                for element in arr {
+                    let fut = resolve_to_value(snapshot.clone(), field.clone(), element);
+                    futs.push_back(fut);
+                }
+
+                let vals: Vec<ConstValue> = futs.try_collect().await?;
+
+                Ok(ConstValue::List(vals))
+            }
         }
     })
 }
