@@ -1,24 +1,13 @@
-use crate::{
-    resolver::{ObjectResolver, ResolverRegistry},
-    value::{ConstValue, Name},
-};
+use crate::{resolver::ObjectResolver, value::ConstValue};
 use anyhow::{anyhow, Result};
-use apollo_compiler::{
-    hir::{self, ObjectTypeDefinition, TypeSystem},
-    ApolloCompiler, HirDatabase, RootDatabase,
-};
+use apollo_compiler::{ApolloCompiler, HirDatabase};
 
 use std::sync::Arc;
 
 mod futures;
 
-pub struct Ctx {
-    args: (),
-}
-
 pub struct Executor {
     compiler: ApolloCompiler,
-    resolvers: ResolverRegistry,
 }
 
 impl Executor {
@@ -39,37 +28,7 @@ impl Executor {
             return Err(anyhow!("graphql had errors"));
         }
 
-        // let type_system = compiler.db.type_system();
-
-        Ok(Self {
-            compiler,
-            resolvers: ResolverRegistry::default(),
-        })
-    }
-
-    pub fn query_type(&self) -> Option<Arc<ObjectTypeDefinition>> {
-        self.type_system()
-            .definitions
-            .schema
-            .query(&self.compiler.db)
-    }
-
-    pub fn object_type_def(&self, name: &str) -> Option<Arc<ObjectTypeDefinition>> {
-        self.type_system()
-            .type_definitions_by_name
-            .get(name)
-            .and_then(|ty| match ty {
-                hir::TypeDefinition::ObjectTypeDefinition(obj_ty) => Some(obj_ty.clone()),
-                _ => None,
-            })
-    }
-
-    pub fn type_system(&self) -> Arc<TypeSystem> {
-        self.compiler.db.type_system().clone()
-    }
-
-    pub fn resolvers_mut(&mut self) -> &mut ResolverRegistry {
-        &mut self.resolvers
+        Ok(Self { compiler })
     }
 
     pub async fn run(

@@ -20,26 +20,6 @@ async fn main() -> Result<()> {
     info!("phoebus server starting...");
 
     let mut executor = Executor::new(SCHEMA)?;
-
-    {
-        let query_type = executor.query_type().unwrap();
-        let person_type = executor
-            .object_type_def("Person")
-            .ok_or(anyhow!("person type not found"))?;
-        let dog_type = executor
-            .object_type_def("Dog")
-            .ok_or(anyhow!("dog type not found"))?;
-        let cat_type = executor
-            .object_type_def("Cat")
-            .ok_or(anyhow!("cat type not found"))?;
-
-        let resolvers = executor.resolvers_mut();
-        resolvers.register_obj(query_type, QueryResolver);
-        resolvers.register_obj(person_type, PersonResolver);
-        resolvers.register_obj(dog_type, DogResolver);
-        resolvers.register_obj(cat_type, CatResolver);
-    }
-
     let start = Instant::now();
     let result = executor.run(QUERY, &QueryResolver).await?;
 
