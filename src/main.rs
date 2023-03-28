@@ -12,7 +12,7 @@ mod resolver;
 mod value;
 
 const SCHEMA: &str = include_str!("../schema.graphql");
-const QUERY: &str = include_str!("../query.graphql");
+const QUERY: &str = include_str!("../introspection.graphql");
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -22,12 +22,12 @@ async fn main() -> Result<()> {
 
     let mut executor = Executor::new(SCHEMA)?;
     let start = Instant::now();
-    let result = executor.run(QUERY, &QueryResolver).await?;
-
+    let result = executor.run(QUERY, QueryResolver).await?;
+    let duration_us = Instant::now().duration_since(start).as_micros();
     println!(
         "result = {}\n(took {}μs)",
-        result,
-        Instant::now().duration_since(start).as_micros()
+        serde_json::to_string_pretty(&result)?,
+        duration_us,
     );
 
     Ok(())
