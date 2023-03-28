@@ -1,6 +1,7 @@
 query {
     peopleCount,
     person {
+        __typename
         firstName
         lastName
         renamedAge: age

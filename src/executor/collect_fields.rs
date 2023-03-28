@@ -2,7 +2,7 @@ use crate::Name;
 use anyhow::{anyhow, Result};
 use apollo_compiler::{
     hir::{self, Directive, Field, ObjectTypeDefinition, Selection, SelectionSet, TypeDefinition},
-    HirDatabase, Snapshot,
+    HirDatabase,
 };
 use indexmap::IndexMap;
 use std::sync::Arc;
@@ -14,12 +14,12 @@ use std::sync::Arc;
 ///
 /// https://spec.graphql.org/draft/#sec-Field-Collection
 pub fn collect_fields(
-    snapshot: &Snapshot,
+    snapshot: &dyn HirDatabase,
     sel_set: &SelectionSet,
     concrete_type: &ObjectTypeDefinition,
 ) -> Result<IndexMap<Name, Vec<Arc<Field>>>> {
     fn inner(
-        snapshot: &Snapshot,
+        snapshot: &dyn HirDatabase,
         sel_set: &SelectionSet,
         concrete_type: &ObjectTypeDefinition,
         grouped_fields: &mut IndexMap<Name, Vec<Arc<Field>>>,
@@ -38,7 +38,7 @@ pub fn collect_fields(
                     //TODO what happens when grouped fields have arguments that differ? need to check for that case and handle explictly
                 }
                 Selection::FragmentSpread(frag_spread) => {
-                    let frag_def = frag_spread.fragment(&**snapshot).ok_or(anyhow!(
+                    let frag_def = frag_spread.fragment(snapshot).ok_or(anyhow!(
                         "fragment definition not found: {}",
                         frag_spread.name()
                     ))?;

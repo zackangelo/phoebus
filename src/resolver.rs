@@ -1,4 +1,4 @@
-use crate::value::ConstValue;
+use crate::value::{ConstValue, Name};
 use anyhow::Result;
 
 #[async_trait::async_trait]
@@ -19,14 +19,33 @@ pub enum Resolved {
 }
 
 impl Resolved {
-    fn null() -> Self {
+    pub fn null() -> Self {
         Self::Value(ConstValue::Null)
     }
 
-    fn is_null(&self) -> bool {
+    pub fn is_null(&self) -> bool {
         match self {
             Self::Value(ConstValue::Null) => true,
             _ => false,
+        }
+    }
+
+    pub fn object<R: ObjectResolver + 'static>(resolver: R) -> Self {
+        Self::Object(Box::new(resolver))
+    }
+
+    pub fn enum_value<S: AsRef<str>>(v: S) -> Self {
+        Self::Value(ConstValue::Enum(Name::new(v)))
+    }
+
+    pub fn string<S: AsRef<str>>(v: S) -> Self {
+        Self::Value(ConstValue::String(v.as_ref().to_owned()))
+    }
+
+    pub fn string_opt<S: AsRef<str>>(v: Option<S>) -> Self {
+        match v {
+            Some(v) => Self::string(v),
+            None => Self::null(),
         }
     }
 }

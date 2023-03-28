@@ -30,7 +30,7 @@ use super::collect_fields::collect_fields;
 
 impl<'a> ExecuteSelectionSet<'a> {
     pub fn new(
-        snapshot: Arc<Snapshot>,
+        snapshot: &'a dyn HirDatabase,
         obj_resolver: &'a dyn ObjectResolver,
         object_ty: Arc<hir::ObjectTypeDefinition>,
         sel_set: &'a SelectionSet,
@@ -38,7 +38,7 @@ impl<'a> ExecuteSelectionSet<'a> {
         let output_map = IndexMap::new();
         let mut field_errors = IndexMap::new();
         let mut field_futs = IndexMap::new();
-        let collected_fields = collect_fields(&snapshot, sel_set, &object_ty)?;
+        let collected_fields = collect_fields(snapshot, sel_set, &object_ty)?;
 
         //TODO merge selection sets in field groups
         for (response_key, fields) in collected_fields {
@@ -108,7 +108,7 @@ impl<'a> Future for ExecuteSelectionSet<'a> {
 }
 
 fn resolve_field<'a>(
-    snapshot: Arc<Snapshot>,
+    snapshot: &'a dyn HirDatabase,
     resolver: &'a dyn ObjectResolver,
     field: Arc<Field>,
 ) -> Result<Pin<Box<dyn Future<Output = Result<ConstValue>> + 'a>>> {
@@ -119,15 +119,15 @@ fn resolve_field<'a>(
 }
 
 fn resolve_to_value<'a>(
-    snapshot: Arc<Snapshot>,
+    snapshot: &'a dyn HirDatabase,
     field: Arc<Field>,
     resolved: Resolved,
 ) -> Pin<Box<dyn Future<Output = Result<ConstValue>> + 'a>> {
     use hir::TypeDefinition::*;
 
-    let snapshot = snapshot.clone();
+    // let snapshot = snapshot.clone();
     Box::pin(async move {
-        let field_def = field.field_definition(&**snapshot).ok_or(anyhow!(
+        let field_def = field.field_definition(snapshot).ok_or(anyhow!(
             "field definition not found for field: {:#?}",
             field.as_ref()
         ))?;
@@ -135,7 +135,7 @@ fn resolve_to_value<'a>(
         let field_ty = field_def.ty();
 
         let field_type_def = field_ty
-            .type_def(&**snapshot)
+            .type_def(snapshot)
             .ok_or(anyhow!("field type definition not found"))?;
 
         match resolved {
@@ -158,7 +158,7 @@ fn resolve_to_value<'a>(
 
                 let obj_resolver = crate::introspection::IspObjectResolver {
                     type_def: object_ty.clone(),
-                    inner: obj_resolver,
+                    inner: obj_resolver.as_ref(),
                 };
 
                 let obj_fut = ExecuteSelectionSet::new(

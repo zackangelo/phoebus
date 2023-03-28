@@ -1,6 +1,12 @@
-use crate::{resolver::ObjectResolver, value::ConstValue};
+use crate::{
+    introspection::{IspObjectResolver, IspRootResolver},
+    resolver::ObjectResolver,
+    value::ConstValue,
+};
 use anyhow::{anyhow, Result};
-use apollo_compiler::{ApolloCompiler, HirDatabase};
+use apollo_compiler::{ApolloCompiler, HirDatabase, Snapshot};
+use std::time::Instant;
+use tokio::sync::Mutex;
 
 use std::sync::Arc;
 
@@ -29,19 +35,35 @@ impl Executor {
             return Err(anyhow!("graphql had errors"));
         }
 
+        //TODO probably unwise to share a single snapshot for all introspection requests, figure out another way
+        // let schema_snapshot = Arc::new(Mutex::new(compiler.snapshot()));
+
         Ok(Self { compiler })
     }
 
-    pub async fn run(
-        &mut self,
-        query: &str,
-        query_resolver: &dyn ObjectResolver,
+    pub async fn run<'a, R: ObjectResolver + 'static>(
+        &'a mut self,
+        query: &'a str,
+        query_resolver: R,
     ) -> Result<ConstValue> {
         // let mut compiler = ApolloCompiler::new();
         // self.compiler.set_type_system_hir(self.db.type_system());
-        let _query_file_id = self.compiler.add_executable(query, "query.graphql");
+        // self.compiler.db.type_system()
 
+        let compile_start = Instant::now();
+        let _query_file_id = self.compiler.add_executable(query, "query.graphql");
+        println!(
+            "compile took: {}μs",
+            Instant::now().duration_since(compile_start).as_micros()
+        );
+
+        let validate_start = Instant::now();
         let diags = self.compiler.validate();
+        println!(
+            "validate took: {}μs",
+            Instant::now().duration_since(validate_start).as_micros()
+        );
+
         let has_errors = diags.iter().filter(|d| d.data.is_error()).count() > 0;
 
         for diag in diags.iter() {
@@ -55,9 +77,6 @@ impl Executor {
         }
 
         let all_ops = self.compiler.db.all_operations();
-
-        // dbg!(&all_ops);
-
         let default_query_op = all_ops
             .iter()
             .find(|op| op.name().is_none())
@@ -68,18 +87,45 @@ impl Executor {
             .object_type(&self.compiler.db)
             .ok_or(anyhow!("query type not found"))?;
 
+        let snapshot_start = Instant::now();
         let snapshot = self.compiler.snapshot();
+        let snapshot2 = Arc::new(Mutex::new(self.compiler.snapshot()));
+        println!(
+            "snapshots took: {}μs",
+            Instant::now().duration_since(snapshot_start).as_micros()
+        );
 
-        // let pet_type = snapshot.find_object_type_by_name("Pet".to_owned());
-        // dbg!(pet_type);
+        let schema_resolver = IspRootResolver {
+            db: snapshot2,
+            inner: &query_resolver,
+        };
+
+        let query_resolver = IspObjectResolver {
+            type_def: query_type.clone(),
+            inner: &schema_resolver,
+        };
+
+        // let ts = self.compiler.db.type_system();
 
         let query_fut = futures::ExecuteSelectionSet::new(
-            Arc::new(snapshot),
-            query_resolver,
+            &self.compiler.db,
+            &query_resolver,
             query_type,
             sel_set,
         )?;
 
         query_fut.await
     }
+}
+
+fn snapshot_is_send<S: Send>(snapshot: S) -> () {
+    todo!()
+}
+
+fn snapshot_is_sync<S: Sync>(snapshot: S) -> () {
+    todo!()
+}
+
+fn snapshot_is_send_sync<S: Send + Sync>(snapshot: S) -> () {
+    todo!()
 }
