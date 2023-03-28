@@ -1,30 +1,20 @@
-use crate::{
-    resolver::{ObjectResolver, ResolverRegistry},
-    value::{ConstValue, Name},
-};
+use crate::{resolver::ObjectResolver, value::ConstValue};
 use anyhow::{anyhow, Result};
-use apollo_compiler::{
-    hir::{self, Field, ObjectTypeDefinition, Selection, SelectionSet, TypeSystem},
-    ApolloCompiler, HirDatabase, RootDatabase, Snapshot,
-};
-use indexmap::IndexMap;
-use std::{future::Future, pin::Pin, sync::Arc, task::Poll};
+use apollo_compiler::{ApolloCompiler, HirDatabase};
 
+use std::sync::Arc;
+
+mod collect_fields;
 mod futures;
 
-pub struct Ctx {
-    args: (),
-}
-
 pub struct Executor {
-    db: RootDatabase,
-    resolvers: ResolverRegistry,
+    compiler: ApolloCompiler,
 }
 
 impl Executor {
     pub fn new(schema: &str) -> Result<Self> {
         let mut compiler = ApolloCompiler::new();
-        let _ = compiler.add_type_system(schema, "schema.graphql");
+        compiler.add_type_system(schema, "schema.graphql");
 
         let diags = compiler.validate();
         let has_errors = diags.iter().filter(|d| d.data.is_error()).count() > 0;
@@ -39,47 +29,24 @@ impl Executor {
             return Err(anyhow!("graphql had errors"));
         }
 
-        // let type_system = compiler.db.type_system();
-
-        Ok(Self {
-            db: compiler.db,
-            resolvers: ResolverRegistry::default(),
-        })
+        Ok(Self { compiler })
     }
 
-    pub fn query_type(&self) -> Option<Arc<ObjectTypeDefinition>> {
-        self.type_system().definitions.schema.query(&self.db)
-    }
+    pub async fn run(
+        &mut self,
+        query: &str,
+        query_resolver: &dyn ObjectResolver,
+    ) -> Result<ConstValue> {
+        // let mut compiler = ApolloCompiler::new();
+        // self.compiler.set_type_system_hir(self.db.type_system());
+        let _query_file_id = self.compiler.add_executable(query, "query.graphql");
 
-    pub fn object_type_def(&self, name: &str) -> Option<Arc<ObjectTypeDefinition>> {
-        self.type_system()
-            .type_definitions_by_name
-            .get(name)
-            .and_then(|ty| match ty {
-                hir::TypeDefinition::ObjectTypeDefinition(obj_ty) => Some(obj_ty.clone()),
-                _ => None,
-            })
-    }
-
-    pub fn type_system(&self) -> Arc<TypeSystem> {
-        self.db.type_system().clone()
-    }
-
-    pub fn resolvers_mut(&mut self) -> &mut ResolverRegistry {
-        &mut self.resolvers
-    }
-
-    pub async fn run(&self, query: &str) -> Result<ConstValue> {
-        let mut compiler = ApolloCompiler::new();
-        compiler.set_type_system_hir(self.db.type_system());
-        let _query_file_id = compiler.add_executable(query, "query.graphql");
-
-        let diags = compiler.validate();
+        let diags = self.compiler.validate();
         let has_errors = diags.iter().filter(|d| d.data.is_error()).count() > 0;
 
         for diag in diags.iter() {
             // if diag.data.is_error() {
-            tracing::error!("query error: {:#?}", diag);
+            tracing::error!("query error: {}", diag);
             // }
         }
 
@@ -87,7 +54,7 @@ impl Executor {
             return Err(anyhow!("graphql had errors"));
         }
 
-        let all_ops = compiler.db.all_operations();
+        let all_ops = self.compiler.db.all_operations();
 
         // dbg!(&all_ops);
 
@@ -98,14 +65,17 @@ impl Executor {
 
         let sel_set = default_query_op.selection_set();
         let query_type = default_query_op
-            .object_type(&compiler.db)
+            .object_type(&self.compiler.db)
             .ok_or(anyhow!("query type not found"))?;
 
-        let snapshot = compiler.snapshot();
+        let snapshot = self.compiler.snapshot();
+
+        // let pet_type = snapshot.find_object_type_by_name("Pet".to_owned());
+        // dbg!(pet_type);
 
         let query_fut = futures::SelectionSetFuture::new(
             Arc::new(snapshot),
-            &self.resolvers,
+            query_resolver,
             query_type,
             sel_set,
         )?;

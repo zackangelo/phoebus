@@ -3,74 +3,66 @@
 //! for this process which can be challenging when working with async/await.
 
 use crate::{
-    resolver::{ObjectResolver, ResolverRegistry},
+    resolver::{ObjectResolver, Resolved},
     value::{ConstValue, Name},
 };
 use anyhow::{anyhow, Result};
 use apollo_compiler::{
-    hir::{self, Field, Selection, SelectionSet},
-    Snapshot,
+    hir::{self, Field, SelectionSet},
+    HirDatabase, Snapshot,
 };
+use futures::{stream::FuturesOrdered, TryStreamExt};
 use indexmap::IndexMap;
-use std::{future::Future, pin::Pin, sync::Arc, task::Poll};
+use std::{
+    future::Future,
+    pin::Pin,
+    sync::Arc,
+    task::{Context, Poll},
+};
 
 pub struct SelectionSetFuture<'a> {
-    // snapshot: Arc<Snapshot>,
-    // resolvers: &'a ResolverRegistry,
-    // obj_resolver: &'a dyn ObjectResolver,
-    // object_ty: Arc<hir::ObjectTypeDefinition>,
-    field_futs: IndexMap<Name, Pin<Box<FieldFuture<'a>>>>,
+    field_futs: IndexMap<Name, Pin<Box<dyn Future<Output = Result<ConstValue>> + 'a>>>,
     output_map: IndexMap<Name, ConstValue>,
     field_errors: IndexMap<Name, anyhow::Error>,
 }
 
+use super::collect_fields::collect_fields;
+
 impl<'a> SelectionSetFuture<'a> {
     pub fn new(
         snapshot: Arc<Snapshot>,
-        resolvers: &'a ResolverRegistry,
+        obj_resolver: &'a dyn ObjectResolver,
         object_ty: Arc<hir::ObjectTypeDefinition>,
         sel_set: &'a SelectionSet,
     ) -> Result<Pin<Box<Self>>> {
         let output_map = IndexMap::new();
         let mut field_errors = IndexMap::new();
-
-        let obj_resolver = resolvers
-            .for_obj(&object_ty)
-            .ok_or(anyhow!("resolver not found for object type"))?
-            .as_ref();
-
         let mut field_futs = IndexMap::new();
-        for sel in sel_set.selection() {
-            match sel {
-                Selection::Field(field) => {
-                    let output_key = Name::new(
-                        field
-                            .alias()
-                            .map(|a| a.0.as_str())
-                            .unwrap_or_else(|| field.name()),
-                    );
+        let collected_fields = collect_fields(&snapshot, sel_set, &object_ty)?;
 
-                    let ffut = FieldFuture::new(snapshot.clone(), resolvers, obj_resolver, field);
+        //TODO merge selection sets in field groups
+        for (response_key, fields) in collected_fields {
+            let field = fields
+                .first()
+                .ok_or(anyhow!(
+                    "response key {} in collected fields contained an empty set",
+                    response_key
+                ))?
+                .clone();
 
-                    match ffut {
-                        Ok(ffut) => {
-                            field_futs.insert(output_key, Box::pin(ffut));
-                        }
-                        Err(err) => {
-                            field_errors.insert(output_key, err);
-                        }
-                    };
+            let field_fut = resolve_field(snapshot.clone(), obj_resolver, field);
+
+            match field_fut {
+                Ok(ffut) => {
+                    field_futs.insert(response_key, ffut);
                 }
-                Selection::FragmentSpread(_) => todo!(),
-                Selection::InlineFragment(_) => todo!(),
+                Err(err) => {
+                    field_errors.insert(response_key, err);
+                }
             }
         }
 
         let fut = Self {
-            // snapshot,
-            // resolvers,
-            // obj_resolver,
-            // object_ty,
             field_futs,
             output_map,
             field_errors,
@@ -83,24 +75,25 @@ impl<'a> SelectionSetFuture<'a> {
 impl<'a> Future for SelectionSetFuture<'a> {
     type Output = Result<ConstValue>;
 
-    fn poll(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
-        let mut resolved_values = vec![];
-        let mut resolved_errors = vec![];
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        //nb: reference gymnastics necessary here because of
+        //mut borrowing multiple fields behind Pin, see: https://github.com/rust-lang/rust/issues/89982
+        let self_mut = &mut *self;
+        let output_map = &mut self_mut.output_map;
+        let field_errors = &mut self_mut.field_errors;
+        let field_futs = &mut self_mut.field_futs;
 
-        self.field_futs.retain(|k, f| match f.as_mut().poll(cx) {
+        field_futs.retain(|k, f| match f.as_mut().poll(cx) {
             Poll::Ready(Ok(field_val)) => {
-                resolved_values.push((k.clone(), field_val));
+                output_map.insert(k.clone(), field_val);
                 false
             }
             Poll::Ready(Err(field_err)) => {
-                resolved_errors.push((k.clone(), field_err));
+                field_errors.insert(k.clone(), field_err);
                 false
             }
             Poll::Pending => true,
         });
-
-        self.output_map.extend(resolved_values);
-        self.field_errors.extend(resolved_errors);
 
         if self.field_futs.is_empty() {
             if !self.field_errors.is_empty() {
@@ -114,64 +107,76 @@ impl<'a> Future for SelectionSetFuture<'a> {
     }
 }
 
-pub struct FieldFuture<'r> {
-    // snapshot: Arc<Snapshot>,
-    // resolvers: &'r ResolverRegistry,
-    // resolver: &'r dyn ObjectResolver,
-    // field: &'r Field,
-    inner: InnerFieldFut<'r>,
+fn resolve_field<'a>(
+    snapshot: Arc<Snapshot>,
+    resolver: &'a dyn ObjectResolver,
+    field: Arc<Field>,
+) -> Result<Pin<Box<dyn Future<Output = Result<ConstValue>> + 'a>>> {
+    Ok(Box::pin(async move {
+        let resolved = resolver.resolve_field(field.name()).await?;
+        resolve_to_value(snapshot, field, resolved).await
+    }))
 }
 
-enum InnerFieldFut<'a> {
-    Resolver(Pin<Box<dyn Future<Output = Result<ConstValue>> + 'a>>),
-    SelectionSet(Pin<Box<SelectionSetFuture<'a>>>),
-}
+fn resolve_to_value<'a>(
+    snapshot: Arc<Snapshot>,
+    field: Arc<Field>,
+    resolved: Resolved,
+) -> Pin<Box<dyn Future<Output = Result<ConstValue>> + 'a>> {
+    use hir::TypeDefinition::*;
 
-impl<'a> FieldFuture<'a> {
-    pub fn new(
-        snapshot: Arc<Snapshot>,
-        resolvers: &'a ResolverRegistry,
-        resolver: &'a dyn ObjectResolver,
-        field: &'a Field,
-    ) -> Result<Self> {
-        use hir::TypeDefinition::*;
-        let field_ty = field
-            .ty(&**snapshot)
-            .ok_or(anyhow!("field type not found"))?;
+    let snapshot = snapshot.clone();
+    Box::pin(async move {
+        let field_def = field.field_definition(&**snapshot).ok_or(anyhow!(
+            "field definition not found for field: {:#?}",
+            field.as_ref()
+        ))?;
+
+        let field_ty = field_def.ty();
+
         let field_type_def = field_ty
             .type_def(&**snapshot)
             .ok_or(anyhow!("field type definition not found"))?;
 
-        let field_name = field.name();
-        let inner = match field_type_def {
-            ScalarTypeDefinition(_scalar_ty) => {
-                InnerFieldFut::Resolver(resolver.resolve_field(field_name))
-            }
-            ObjectTypeDefinition(object_ty) => {
-                InnerFieldFut::SelectionSet(SelectionSetFuture::new(
+        match resolved {
+            Resolved::Value(v) => Ok(v),
+            Resolved::Object(obj_resolver) => {
+                let object_ty = match field_type_def {
+                    ObjectTypeDefinition(o) => o,
+                    InterfaceTypeDefinition(iface) => {
+                        let type_name = obj_resolver.resolve_type_name().await?.ok_or(anyhow!(
+                            "resolver did not return concrete type for {}",
+                            iface.name()
+                        ))?;
+
+                        snapshot
+                            .find_object_type_by_name(type_name.to_owned())
+                            .ok_or(anyhow!("concrete object type not found: {}", type_name))?
+                    }
+                    _ => return Err(anyhow!("type mismatch: object type expected")),
+                };
+
+                let obj_fut = SelectionSetFuture::new(
                     snapshot.clone(),
-                    resolvers,
+                    obj_resolver.as_ref(),
                     object_ty,
                     field.selection_set(),
-                )?)
+                )?;
+
+                Ok(obj_fut.await?)
             }
-            InterfaceTypeDefinition(_) => todo!(),
-            UnionTypeDefinition(_) => todo!(),
-            EnumTypeDefinition(_) => todo!(),
-            InputObjectTypeDefinition(_) => todo!(),
-        };
+            Resolved::Array(arr) => {
+                let mut futs = FuturesOrdered::new();
 
-        Ok(Self { inner })
-    }
-}
+                for element in arr {
+                    let fut = resolve_to_value(snapshot.clone(), field.clone(), element);
+                    futs.push_back(fut);
+                }
 
-impl<'a> Future for FieldFuture<'a> {
-    type Output = Result<ConstValue>;
+                let vals: Vec<ConstValue> = futs.try_collect().await?; //FIXME should not short-circuit here, need to collect errors from each element
 
-    fn poll(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
-        match &mut self.as_mut().inner {
-            InnerFieldFut::Resolver(f) => f.as_mut().poll(cx),
-            InnerFieldFut::SelectionSet(f) => f.as_mut().poll(cx),
+                Ok(ConstValue::List(vals))
+            }
         }
-    }
+    })
 }

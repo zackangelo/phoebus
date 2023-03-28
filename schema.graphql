@@ -5,21 +5,31 @@ schema {
 type Query {
     peopleCount: Int!
     person: Person!
-    # people: [Person!]!
 }
 
 interface Pet {
+  name: String!
+}
+
+type Dog implements Pet {
     name: String!
+    dogBreed: DogBreed!
+}
+
+type Cat implements Pet {
+    name: String!
+    catBreed: CatBreed!
 }
 
 type Person {
     firstName: String!
     lastName: String!
     age: Int
-    # pet: Pet
+    pets: [Pet!]!
 }
 
 enum DogBreed {
+    CHIHUAHUA
     RETRIEVER
     LAB
 }

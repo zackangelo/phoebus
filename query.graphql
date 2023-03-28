@@ -4,5 +4,16 @@ query {
         firstName
         lastName
         renamedAge: age
+        pets {
+            name
+
+            ... on Dog {
+                dogBreed
+            }
+
+            ... on Cat {
+                catBreed
+            }
+        }
     }
 }
