@@ -20,7 +20,7 @@ use std::{
     task::{Context, Poll},
 };
 
-pub struct SelectionSetFuture<'a> {
+pub struct ExecuteSelectionSet<'a> {
     field_futs: IndexMap<Name, Pin<Box<dyn Future<Output = Result<ConstValue>> + 'a>>>,
     output_map: IndexMap<Name, ConstValue>,
     field_errors: IndexMap<Name, anyhow::Error>,
@@ -28,7 +28,7 @@ pub struct SelectionSetFuture<'a> {
 
 use super::collect_fields::collect_fields;
 
-impl<'a> SelectionSetFuture<'a> {
+impl<'a> ExecuteSelectionSet<'a> {
     pub fn new(
         snapshot: Arc<Snapshot>,
         obj_resolver: &'a dyn ObjectResolver,
@@ -72,7 +72,7 @@ impl<'a> SelectionSetFuture<'a> {
     }
 }
 
-impl<'a> Future for SelectionSetFuture<'a> {
+impl<'a> Future for ExecuteSelectionSet<'a> {
     type Output = Result<ConstValue>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -156,9 +156,14 @@ fn resolve_to_value<'a>(
                     _ => return Err(anyhow!("type mismatch: object type expected")),
                 };
 
-                let obj_fut = SelectionSetFuture::new(
+                let obj_resolver = crate::introspection::IspObjectResolver {
+                    type_def: object_ty.clone(),
+                    inner: obj_resolver,
+                };
+
+                let obj_fut = ExecuteSelectionSet::new(
                     snapshot.clone(),
-                    obj_resolver.as_ref(),
+                    &obj_resolver,
                     object_ty,
                     field.selection_set(),
                 )?;

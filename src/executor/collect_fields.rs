@@ -156,11 +156,10 @@ fn fragment_type_applies(
         }
         TypeDefinition::InterfaceTypeDefinition(obj_iface_type) => Ok(obj_type
             .implements_interfaces()
-            .iter()
             .find(|ii| ii.interface() == obj_iface_type.name())
             .is_some()),
         TypeDefinition::UnionTypeDefinition(union_type) => Ok(union_type
-            .union_members()
+            .self_members()
             .iter()
             .find(|ut| ut.name() == obj_type.name())
             .is_some()),

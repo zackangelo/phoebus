@@ -7,6 +7,7 @@ use value::{ConstValue, Name};
 use crate::executor::Executor;
 
 mod executor;
+mod introspection;
 mod resolver;
 mod value;
 

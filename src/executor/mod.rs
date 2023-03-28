@@ -73,7 +73,7 @@ impl Executor {
         // let pet_type = snapshot.find_object_type_by_name("Pet".to_owned());
         // dbg!(pet_type);
 
-        let query_fut = futures::SelectionSetFuture::new(
+        let query_fut = futures::ExecuteSelectionSet::new(
             Arc::new(snapshot),
             query_resolver,
             query_type,
