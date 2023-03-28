@@ -4,9 +4,13 @@ use crate::{
     value::ConstValue,
 };
 use anyhow::{anyhow, Result};
-use apollo_compiler::{ApolloCompiler, HirDatabase, Snapshot};
+use apollo_compiler::{
+    hir::{InterfaceTypeDefinition, ObjectTypeDefinition, TypeSystem},
+    ApolloCompiler, HirDatabase, Snapshot,
+};
 use std::time::Instant;
 use tokio::sync::Mutex;
+use tracing::{info_span, span, Instrument, Level};
 
 use std::sync::Arc;
 
@@ -88,16 +92,19 @@ impl Executor {
             .ok_or(anyhow!("query type not found"))?;
 
         let snapshot_start = Instant::now();
-        let snapshot = self.compiler.snapshot();
-        let snapshot2 = Arc::new(Mutex::new(self.compiler.snapshot()));
+        let ts = self.compiler.db.type_system();
+
+        let ectx = ExecCtx { ts: ts.clone() };
+
         println!(
             "snapshots took: {}μs",
             Instant::now().duration_since(snapshot_start).as_micros()
         );
 
         let schema_resolver = IspRootResolver {
-            db: snapshot2,
+            // db: snapshot2,
             inner: &query_resolver,
+            ts,
         };
 
         let query_resolver = IspObjectResolver {
@@ -108,6 +115,7 @@ impl Executor {
         // let ts = self.compiler.db.type_system();
 
         let query_fut = futures::ExecuteSelectionSet::new(
+            &exec_ctx,
             &self.compiler.db,
             &query_resolver,
             query_type,
@@ -115,6 +123,21 @@ impl Executor {
         )?;
 
         query_fut.await
+    }
+}
+
+pub struct ExecCtx {
+    ts: Arc<TypeSystem>,
+    // db: &dyn HirDatabase,
+}
+
+impl ExecCtx {
+    fn find_object_type_definition(&self, name: &str) -> Option<&ObjectTypeDefinition> {
+        self.ts.definitions.objects.get(name).map(|o| o.as_ref())
+    }
+
+    fn find_interface_type_definition(&self, name: &str) -> Option<&InterfaceTypeDefinition> {
+        self.ts.definitions.interfaces.get(name).map(|o| o.as_ref())
     }
 }
 

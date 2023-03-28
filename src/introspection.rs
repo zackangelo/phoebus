@@ -8,7 +8,7 @@ use crate::{
 use anyhow::anyhow;
 use anyhow::Result;
 use apollo_compiler::{
-    hir::{self, ObjectTypeDefinition},
+    hir::{self, ObjectTypeDefinition, TypeSystem},
     HirDatabase, Snapshot,
 };
 use std::sync::Arc;
@@ -37,7 +37,7 @@ impl<'a> ObjectResolver for IspObjectResolver<'a> {
 /// ObjectResolver intended to be added to a query root to expose schema
 /// introspection fields
 pub struct IspRootResolver<'a> {
-    pub(crate) db: Arc<Mutex<Snapshot>>, //Mutex needed to make Snapshot Send + Sync (thought this was already the case?)
+    pub(crate) ts: Arc<hir::TypeSystem>,
     pub(crate) inner: &'a dyn ObjectResolver,
 }
 
@@ -47,7 +47,7 @@ impl<'a> ObjectResolver for IspRootResolver<'a> {
         match name {
             "__schema" => {
                 let resolver = IspSchemaResolver {
-                    db: self.db.clone(),
+                    ts: self.ts.clone(),
                 };
                 Ok(Resolved::object(resolver))
             }
@@ -67,7 +67,7 @@ type __Schema {
 }
 */
 pub struct IspSchemaResolver {
-    pub(crate) db: Arc<Mutex<Snapshot>>,
+    pub(crate) ts: Arc<TypeSystem>,
 }
 
 #[async_trait]
@@ -76,18 +76,18 @@ impl ObjectResolver for IspSchemaResolver {
         match name {
             "description" => todo!(),
             "types" => {
-                let db = self.db.lock().await;
-                let all_type_defs = db
-                    .types_definitions_by_name()
+                let all_type_defs = self
+                    .ts
+                    .type_definitions_by_name
                     .values()
                     .filter(|ty| !ty.name().starts_with("__")) //TODO there should be a more reliable check somewhere for excluding introspection types
                     .map(|ty| {
                         Resolved::object(IspTypeResolver {
-                            db: self.db.clone(),
                             ty: hir::Type::Named {
                                 name: ty.name().to_owned(),
                                 loc: Some(ty.loc()),
                             },
+                            ts: self.ts.clone(),
                         })
                     }) //TODO make reference work?
                     .collect::<Vec<_>>();
@@ -125,7 +125,7 @@ type __Type {
 }
 */
 pub struct IspTypeResolver {
-    pub(crate) db: Arc<Mutex<Snapshot>>,
+    pub(crate) ts: Arc<hir::TypeSystem>,
     pub(crate) ty: hir::Type,
 }
 
@@ -141,8 +141,8 @@ impl IspTypeResolver {
             "enumValues" => Ok(Resolved::null()), //(includeDeprecated: Boolean = false): [__EnumValue!]
             "inputFields" => Ok(Resolved::null()), //(includeDeprecated: Boolean = false): [__InputValue!]
             "ofType" => Ok(Resolved::object(IspTypeResolver {
-                db: self.db.clone(),
                 ty: of_type.clone(),
+                ts: self.ts.clone(),
             })), //: __Type
             "specifiedByURL" => Ok(Resolved::null()), //: String TODO - not sure where to get this
             _ => Err(anyhow!("invalid list type field")),
@@ -160,8 +160,8 @@ impl IspTypeResolver {
             "enumValues" => Ok(Resolved::null()), //(includeDeprecated: Boolean = false): [__EnumValue!]
             "inputFields" => Ok(Resolved::null()), //(includeDeprecated: Boolean = false): [__InputValue!]
             "ofType" => Ok(Resolved::object(IspTypeResolver {
-                db: self.db.clone(),
                 ty: of_type.clone(),
+                ts: self.ts.clone(),
             })), //: __Type
             "specifiedByURL" => Ok(Resolved::null()), //: String TODO - not sure where to get this
             _ => Err(anyhow!("invalid list type field")),
@@ -169,8 +169,8 @@ impl IspTypeResolver {
     }
 
     async fn resolve_named_type(&self, field: &str, type_name: &str) -> Result<Resolved> {
-        let db = self.db.lock().await;
-        let ty_def = db.find_type_definition_by_name(type_name.to_owned());
+        // let db = self.db.lock().await;
+        let ty_def = self.ts.type_definitions_by_name.get(type_name);
 
         match ty_def {
             Some(ty_def) => match ty_def {
@@ -200,7 +200,7 @@ impl IspTypeResolver {
     fn resolve_scalar_type(
         &self,
         field: &str,
-        type_def: Arc<hir::ScalarTypeDefinition>,
+        type_def: &hir::ScalarTypeDefinition,
     ) -> Result<Resolved> {
         match field {
             "kind" => Ok(Resolved::enum_value("SCALAR")), //": __TypeKind!
@@ -220,7 +220,7 @@ impl IspTypeResolver {
     fn resolve_object_type(
         &self,
         field: &str,
-        type_def: Arc<hir::ObjectTypeDefinition>,
+        type_def: &hir::ObjectTypeDefinition,
     ) -> Result<Resolved> {
         match field {
             "kind" => Ok(Resolved::enum_value("OBJECT")), //": __TypeKind!
@@ -231,8 +231,8 @@ impl IspTypeResolver {
                     .fields()
                     .map(|f| {
                         Resolved::object(IspFieldResolver {
-                            db: self.db.clone(),
                             field_def: f.clone(),
+                            ts: self.ts.clone(),
                         })
                     })
                     .collect(),
@@ -250,7 +250,7 @@ impl IspTypeResolver {
     fn resolve_interface_type(
         &self,
         field: &str,
-        type_def: Arc<hir::InterfaceTypeDefinition>,
+        type_def: &hir::InterfaceTypeDefinition,
     ) -> Result<Resolved> {
         match field {
             "kind" => Ok(Resolved::enum_value("INTERFACE")), //": __TypeKind!
@@ -261,8 +261,8 @@ impl IspTypeResolver {
                     .fields()
                     .map(|f| {
                         Resolved::object(IspFieldResolver {
-                            db: self.db.clone(),
                             field_def: f.clone(),
+                            ts: self.ts.clone(),
                         })
                     })
                     .collect(),
@@ -280,7 +280,7 @@ impl IspTypeResolver {
     fn resolve_union_type(
         &self,
         field: &str,
-        type_def: Arc<hir::UnionTypeDefinition>,
+        type_def: &hir::UnionTypeDefinition,
     ) -> Result<Resolved> {
         match field {
             "kind" => Ok(Resolved::enum_value("UNION")), //": __TypeKind!
@@ -300,7 +300,7 @@ impl IspTypeResolver {
     fn resolve_enum_type(
         &self,
         field: &str,
-        type_def: Arc<hir::EnumTypeDefinition>,
+        type_def: &hir::EnumTypeDefinition,
     ) -> Result<Resolved> {
         match field {
             "kind" => Ok(Resolved::enum_value("ENUM")), //": __TypeKind!
@@ -320,7 +320,7 @@ impl IspTypeResolver {
     fn resolve_input_type(
         &self,
         field: &str,
-        type_def: Arc<hir::InputObjectTypeDefinition>,
+        type_def: &hir::InputObjectTypeDefinition,
     ) -> Result<Resolved> {
         match field {
             "kind" => Ok(Resolved::enum_value("INPUT_OBJECT")), //": __TypeKind!
@@ -361,8 +361,8 @@ type __Field {
  */
 
 pub struct IspFieldResolver {
-    pub(crate) db: Arc<Mutex<Snapshot>>,
     pub(crate) field_def: hir::FieldDefinition,
+    pub(crate) ts: Arc<hir::TypeSystem>,
 }
 
 #[async_trait]
@@ -373,8 +373,8 @@ impl ObjectResolver for IspFieldResolver {
             "description" => Resolved::string_opt(self.field_def.description()),
             "args" => Resolved::Array(vec![]), //TODO
             "type" => Resolved::object(IspTypeResolver {
-                db: self.db.clone(),
                 ty: self.field_def.ty().clone(),
+                ts: self.ts.clone(),
             }),
             "isDeprecated" => {
                 ConstValue::Boolean(self.field_def.directive_by_name("deprecated").is_some()).into()

@@ -19,6 +19,7 @@ use std::{
     sync::Arc,
     task::{Context, Poll},
 };
+use tracing::{span, Instrument, Level};
 
 pub struct ExecuteSelectionSet<'a> {
     field_futs: IndexMap<Name, Pin<Box<dyn Future<Output = Result<ConstValue>> + 'a>>>,
@@ -26,7 +27,7 @@ pub struct ExecuteSelectionSet<'a> {
     field_errors: IndexMap<Name, anyhow::Error>,
 }
 
-use super::collect_fields::collect_fields;
+use super::{collect_fields::collect_fields, ExecCtx};
 
 impl<'a> ExecuteSelectionSet<'a> {
     pub fn new(
@@ -50,7 +51,7 @@ impl<'a> ExecuteSelectionSet<'a> {
                 ))?
                 .clone();
 
-            let field_fut = resolve_field(snapshot.clone(), obj_resolver, field);
+            let field_fut = resolve_field(snapshot.clone(), obj_resolver, field.clone());
 
             match field_fut {
                 Ok(ffut) => {
@@ -112,10 +113,14 @@ fn resolve_field<'a>(
     resolver: &'a dyn ObjectResolver,
     field: Arc<Field>,
 ) -> Result<Pin<Box<dyn Future<Output = Result<ConstValue>> + 'a>>> {
-    Ok(Box::pin(async move {
-        let resolved = resolver.resolve_field(field.name()).await?;
-        resolve_to_value(snapshot, field, resolved).await
-    }))
+    let span = span!(Level::INFO, "field", "{}", field.name());
+    Ok(Box::pin(
+        async move {
+            let resolved = resolver.resolve_field(field.name()).await?;
+            resolve_to_value(snapshot, field, resolved).await
+        }
+        .instrument(span),
+    ))
 }
 
 fn resolve_to_value<'a>(
@@ -174,7 +179,7 @@ fn resolve_to_value<'a>(
                 let mut futs = FuturesOrdered::new();
 
                 for element in arr {
-                    let fut = resolve_to_value(snapshot.clone(), field.clone(), element);
+                    let fut = resolve_to_value(snapshot, field.clone(), element);
                     futs.push_back(fut);
                 }
 

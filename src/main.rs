@@ -24,11 +24,11 @@ async fn main() -> Result<()> {
     let start = Instant::now();
     let result = executor.run(QUERY, QueryResolver).await?;
     let duration_us = Instant::now().duration_since(start).as_micros();
-    println!(
-        "result = {}\n(took {}μs)",
-        serde_json::to_string_pretty(&result)?,
-        duration_us,
-    );
+    // println!(
+    //     "result = {}\n(took {}μs)",
+    //     serde_json::to_string_pretty(&result)?,
+    //     duration_us,
+    // );
 
     Ok(())
 }
