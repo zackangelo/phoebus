@@ -13,12 +13,12 @@ interface Pet {
 
 type Dog implements Pet {
     name: String!
-    dog_breed: DogBreed!
+    dogBreed: DogBreed!
 }
 
 type Cat implements Pet {
     name: String!
-    cat_breed: CatBreed!
+    catBreed: CatBreed!
 }
 
 type Person {
