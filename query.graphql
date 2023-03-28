@@ -5,10 +5,10 @@ query {
         lastName
         renamedAge: age
         pets {
-            __typename
             name
 
             ... on Dog {
+                __typename
                 dogBreed
             }
 
