@@ -27,7 +27,7 @@ async fn main() -> Result<()> {
 
     // tokio::spawn(async move {
     let executor = Executor::new(SCHEMA).unwrap();
-    for _i in 0..100 {
+    for _i in 0..1000 {
         let start = Instant::now();
         let result = executor.run(QUERY, QueryResolver).await.unwrap();
         let duration_us = Instant::now().duration_since(start).as_micros();

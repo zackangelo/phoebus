@@ -1,8 +1,7 @@
 use crate::Name;
 use anyhow::{anyhow, Result};
-use apollo_compiler::{
-    hir::{self, Directive, Field, ObjectTypeDefinition, Selection, SelectionSet, TypeDefinition},
-    HirDatabase,
+use apollo_compiler::hir::{
+    self, Directive, Field, ObjectTypeDefinition, Selection, SelectionSet, TypeDefinition,
 };
 use indexmap::IndexMap;
 use std::sync::Arc;
@@ -160,7 +159,7 @@ fn fragment_type_applies(
         TypeDefinition::ObjectTypeDefinition(obj_frag_type) => {
             Ok(obj_type == obj_frag_type.as_ref())
         }
-        TypeDefinition::InterfaceTypeDefinition(obj_iface_type) => {
+        TypeDefinition::InterfaceTypeDefinition(_obj_iface_type) => {
             Ok(exec_ctx.is_subtype(obj_type.name(), frag_type.name()))
         }
         TypeDefinition::UnionTypeDefinition(union_type) => {

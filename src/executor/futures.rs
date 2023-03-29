@@ -17,7 +17,7 @@ use std::{
     task::{Context, Poll},
     time::Instant,
 };
-use tracing::{debug, info, span, Instrument, Level};
+use tracing::{info, span, Instrument, Level};
 
 pub struct ExecuteSelectionSet<'a> {
     field_futs: IndexMap<Name, Pin<Box<dyn Future<Output = Result<ConstValue>> + Send + 'a>>>,

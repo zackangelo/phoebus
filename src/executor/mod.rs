@@ -19,7 +19,6 @@ mod collect_fields;
 mod futures;
 
 pub struct Executor {
-    // compiler: ApolloCompiler,
     type_system: Arc<TypeSystem>,
     exec_schema: Arc<ExecSchema>,
 }
@@ -84,47 +83,52 @@ impl Executor {
         // if has_errors {
         //     return Err(anyhow!("graphql had errors"));
         // }
-
-        let all_ops = compiler.db.all_operations();
-        let default_query_op = all_ops
-            .iter()
-            .find(|op| op.name().is_none())
-            .ok_or_else(|| anyhow!("default query not found"))?;
-
-        let sel_set = default_query_op.selection_set();
-        let query_type = default_query_op
-            .object_type(&compiler.db)
-            .ok_or_else(|| anyhow!("query type not found"))?;
-
-        let snapshot_start = Instant::now();
-        let ts = compiler.db.type_system();
         let ectx = ExecCtx::new(&compiler.db, self.exec_schema.clone());
-        tracing::debug!(
-            "snapshots took: {}μs",
-            Instant::now().duration_since(snapshot_start).as_micros()
-        );
 
-        let schema_resolver = IspRootResolver {
-            // db: snapshot2,
-            inner: &query_resolver,
-            ts,
-        };
+        let result_fut = tokio::spawn(async move {
+            let all_ops = compiler.db.all_operations();
+            let default_query_op = all_ops
+                .iter()
+                .find(|op| op.name().is_none())
+                .ok_or_else(|| anyhow!("default query not found"))?;
 
-        let query_resolver = IspObjectResolver {
-            type_def: query_type.clone(),
-            inner: &schema_resolver,
-        };
+            let sel_set = default_query_op.selection_set();
+            let query_type = default_query_op
+                .object_type(&compiler.db)
+                .ok_or_else(|| anyhow!("query type not found"))?;
 
-        let query_fut =
-            futures::ExecuteSelectionSet::new(&ectx, &query_resolver, query_type, sel_set)?;
+            let snapshot_start = Instant::now();
+            let ts = compiler.db.type_system();
 
-        let exec_start = Instant::now();
-        let result = query_fut.await;
-        tracing::info!(
-            "query took {}μs",
-            Instant::now().duration_since(exec_start).as_micros()
-        );
-        result
+            tracing::debug!(
+                "snapshots took: {}μs",
+                Instant::now().duration_since(snapshot_start).as_micros()
+            );
+
+            let schema_resolver = IspRootResolver {
+                // db: snapshot2,
+                inner: &query_resolver,
+                ts,
+            };
+
+            let query_resolver = IspObjectResolver {
+                type_def: query_type.clone(),
+                inner: &schema_resolver,
+            };
+
+            let query_fut =
+                futures::ExecuteSelectionSet::new(&ectx, &query_resolver, query_type, sel_set)?;
+
+            let exec_start = Instant::now();
+            let result = query_fut.await;
+            tracing::info!(
+                "query took {}μs",
+                Instant::now().duration_since(exec_start).as_micros()
+            );
+            result
+        });
+
+        result_fut.await?
     }
 }
 
