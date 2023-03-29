@@ -12,10 +12,12 @@ tokio = { version = "1", features = ["full"] }
 serde = { version = "1.0.153", features = ["derive"] }
 serde_json = "1.0.94"
 tracing = "0.1.37"
-tracing-subscriber = { version = "0.3.16", features = [ "env-filter" ] }
 anyhow = "1.0.69"
 indexmap = { version = "1.9.2", features = [ "serde" ] }
 bytes = "1.4.0"
 async-recursion = "1.0.4"
 async-trait = "0.1.68"
 futures = "0.3.27"
+
+[dev-dependencies] 
+tracing-subscriber = { version = "0.3.16", features = [ "env-filter" ] }

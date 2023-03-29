@@ -207,7 +207,7 @@ impl IspTypeResolver {
             "enumValues" => Ok(Resolved::null()), //(includeDeprecated: Boolean = false): [__EnumValue!]
             "inputFields" => Ok(Resolved::null()), //(includeDeprecated: Boolean = false): [__InputValue!]
             "ofType" => Ok(Resolved::null()),      //: __Type
-            "specifiedByURL" => Ok(Resolved::null()), //: String TODO - not sure where to get this
+            "specifiedByURL" => Ok(self.resolve_specified_by(type_def)),
             _ => Err(anyhow!("invalid list type field")),
         }
     }
