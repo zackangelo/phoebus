@@ -56,6 +56,12 @@ impl From<ConstValue> for Resolved {
     }
 }
 
+// impl<V: AsRef<str>> From<V> for Resolved {
+//     fn from(value: V) -> Self {
+//         Self::Value(value.into())
+//     }
+// }
+
 impl<R: ObjectResolver + 'static> From<R> for Resolved {
     fn from(value: R) -> Self {
         Self::Object(Box::new(value))

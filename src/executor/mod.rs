@@ -73,13 +73,14 @@ impl Executor {
             Instant::now().duration_since(validate_start).as_micros()
         );
 
-        let has_errors = diags.iter().filter(|d| d.data.is_error()).count() > 0;
         for diag in diags.iter() {
-            // if diag.data.is_error() {
-            // tracing::error!("query error: {}", diag);
-            // }
+            if diag.data.is_error() {
+                tracing::error!("query error: {}", diag);
+            }
         }
 
+        let _has_errors = diags.iter().filter(|d| d.data.is_error()).count() > 0;
+        // https://github.com/apollographql/apollo-rs/issues/504
         // if has_errors {
         //     return Err(anyhow!("graphql had errors"));
         // }

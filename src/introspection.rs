@@ -7,7 +7,7 @@ use crate::{
 };
 use anyhow::anyhow;
 use anyhow::Result;
-use apollo_compiler::hir::{self, ObjectTypeDefinition, TypeSystem};
+use apollo_compiler::hir::{self, InputValueDefinition, ObjectTypeDefinition, TypeSystem};
 use async_trait::async_trait;
 use std::sync::Arc;
 
@@ -212,6 +212,18 @@ impl IspTypeResolver {
         }
     }
 
+    fn resolve_specified_by(&self, type_def: &hir::ScalarTypeDefinition) -> Resolved {
+        Resolved::string_opt(
+            type_def
+                .directives()
+                .find(|d| d.name() == "specifiedBy")
+                .and_then(|d| match d.argument_by_name("url") {
+                    Some(hir::Value::String(s)) => Some(s.as_str()),
+                    _ => None,
+                }),
+        )
+    }
+
     fn resolve_object_type(
         &self,
         field: &str,
@@ -232,7 +244,17 @@ impl IspTypeResolver {
                     })
                     .collect(),
             )), //(includeDeprecated: Boolean = false): [__Field!]
-            "interfaces" => Ok(Resolved::null()),                              //: [__Type!]
+            "interfaces" => Ok(type_def
+                .implements_interfaces()
+                .map(|i| IspTypeResolver {
+                    ts: self.ts.clone(),
+                    ty: hir::Type::Named {
+                        name: i.interface().to_owned(),
+                        loc: None,
+                    },
+                })
+                .collect::<Vec<_>>()
+                .into()), //: [__Type!]
             "possibleTypes" => Ok(Resolved::null()),                           //: [__Type!]
             "enumValues" => Ok(Resolved::null()), //(includeDeprecated: Boolean = false): [__EnumValue!]
             "inputFields" => Ok(Resolved::null()), //(includeDeprecated: Boolean = false): [__InputValue!]
@@ -261,15 +283,34 @@ impl IspTypeResolver {
                         })
                     })
                     .collect(),
-            )), //(includeDeprecated: Boolean = false): [__Field!]
+            )), //TODO includeDeprecated arg
             "interfaces" => Ok(Resolved::null()),                              //: [__Type!]
-            "possibleTypes" => Ok(Resolved::null()),                           //: [__Type!]
+            "possibleTypes" => Ok(self.resolve_impl_possible_types(type_def.name())), //: [__Type!]
             "enumValues" => Ok(Resolved::null()), //(includeDeprecated: Boolean = false): [__EnumValue!]
             "inputFields" => Ok(Resolved::null()), //(includeDeprecated: Boolean = false): [__InputValue!]
             "ofType" => Ok(Resolved::null()),      //: __Type
             "specifiedByURL" => Ok(Resolved::null()), //: String TODO - not sure where to get this
             _ => Err(anyhow!("invalid list type field")),
         }
+    }
+
+    fn resolve_impl_possible_types(&self, iface_name: &str) -> Resolved {
+        //nb: slow but probably fine for now, maybe index in future
+        self.ts
+            .definitions
+            .objects
+            .iter()
+            .filter(|(_, ty)| ty.implements_interface(iface_name))
+            .map(|(name, _ty)| IspTypeResolver {
+                //TODO create an IspObjectTypeResolver directly when we refactor
+                ts: self.ts.clone(),
+                ty: hir::Type::Named {
+                    name: name.clone(),
+                    loc: None,
+                },
+            })
+            .collect::<Vec<_>>()
+            .into()
     }
 
     fn resolve_union_type(
@@ -304,7 +345,13 @@ impl IspTypeResolver {
             "fields" => Ok(Resolved::null()), //(includeDeprecated: Boolean = false): [__Field!]
             "interfaces" => Ok(Resolved::null()), //: [__Type!]
             "possibleTypes" => Ok(Resolved::null()), //: [__Type!]
-            "enumValues" => Ok(Resolved::null()), //(includeDeprecated: Boolean = false): [__EnumValue!]
+            "enumValues" => Ok(type_def
+                .values()
+                .map(|v| IspEnumValueResolver {
+                    enum_value: v.clone(),
+                })
+                .collect::<Vec<_>>()
+                .into()), //(includeDeprecated: Boolean = false): [__EnumValue!]
             "inputFields" => Ok(Resolved::null()), //(includeDeprecated: Boolean = false): [__InputValue!]
             "ofType" => Ok(Resolved::null()),      //: __Type
             "specifiedByURL" => Ok(Resolved::null()), //: String TODO - not sure where to get this
@@ -366,19 +413,131 @@ impl ObjectResolver for IspFieldResolver {
         Ok(match name {
             "name" => Resolved::string(self.field_def.name()),
             "description" => Resolved::string_opt(self.field_def.description()),
-            "args" => Resolved::Array(vec![]), //TODO
+            "args" => self
+                .field_def
+                .arguments()
+                .input_values()
+                .iter()
+                .map(|iv| IspInputValueResolver {
+                    input_value_def: iv.clone(),
+                    ts: self.ts.clone(),
+                })
+                .collect::<Vec<_>>()
+                .into(), //Resolved::Array(vec![]), //TODO
             "type" => Resolved::object(IspTypeResolver {
                 ty: self.field_def.ty().clone(),
                 ts: self.ts.clone(),
             }),
-            "isDeprecated" => {
-                ConstValue::Boolean(self.field_def.directive_by_name("deprecated").is_some()).into()
-            }
-            "deprecationReason" => Resolved::null(),
+            "isDeprecated" => self.field_def.resolve_is_deprecated(),
+            "deprecationReason" => self.field_def.resolve_deprecation_reason(),
             _ => Resolved::null(),
         })
     }
 }
+
+pub struct IspInputValueResolver {
+    ts: Arc<TypeSystem>,
+    input_value_def: InputValueDefinition,
+}
+
+// type __InputValue {
+//     name: String!
+//     description: String
+//     type: __Type!
+//     defaultValue: String
+//     isDeprecated: Boolean!
+//     deprecationReason: String
+//   }
+#[async_trait]
+impl ObjectResolver for IspInputValueResolver {
+    async fn resolve_field(&self, name: &str) -> Result<Resolved> {
+        Ok(match name {
+            "name" => Resolved::string(self.input_value_def.name()),
+            "description" => Resolved::string_opt(self.input_value_def.description()),
+            "type" => resolve_ty(&self.ts, &self.input_value_def.ty()),
+            "defaultValue" => Resolved::string_opt(
+                self.input_value_def
+                    .default_value()
+                    .map(|v| format!("{:?}", v)), //TODO not sure what this represenation needs to be, debug for now
+            ),
+            "isDeprecated" => self.input_value_def.resolve_is_deprecated(),
+            "deprecationReason" => self.input_value_def.resolve_deprecation_reason(),
+            _ => Resolved::null(),
+        })
+    }
+}
+
+// type __EnumValue {
+//     name: String!
+//     description: String
+//     isDeprecated: Boolean!
+//     deprecationReason: String
+//   }
+pub struct IspEnumValueResolver {
+    enum_value: hir::EnumValueDefinition,
+}
+
+#[async_trait]
+impl ObjectResolver for IspEnumValueResolver {
+    async fn resolve_field(&self, name: &str) -> Result<Resolved> {
+        Ok(match name {
+            "name" => Resolved::string(self.enum_value.enum_value()),
+            "description" => Resolved::string_opt(self.enum_value.description()),
+            "isDeprecated" => self.enum_value.resolve_is_deprecated(),
+            "deprecationReason" => self.enum_value.resolve_deprecation_reason(),
+            _ => Resolved::null(),
+        })
+    }
+}
+
+fn resolve_ty(ts: &Arc<TypeSystem>, ty: &hir::Type) -> Resolved {
+    Resolved::object(IspTypeResolver {
+        ty: ty.clone(),
+        ts: ts.clone(),
+    })
+}
+
+trait IspDirectives {
+    fn directives(&self) -> &[hir::Directive];
+
+    fn deprecated_directive(&self) -> Option<&hir::Directive> {
+        self.directives().iter().find(|d| d.name() == "deprecated")
+    }
+
+    fn is_deprecated(&self) -> bool {
+        self.deprecated_directive().is_some()
+    }
+
+    fn resolve_is_deprecated(&self) -> Resolved {
+        Resolved::Value(self.is_deprecated().into())
+    }
+
+    fn deprecation_reason(&self) -> Option<&str> {
+        self.deprecated_directive()
+            .and_then(|d| match d.argument_by_name("reason") {
+                Some(hir::Value::String(s)) => Some(s.as_str()),
+                _ => None,
+            })
+    }
+
+    fn resolve_deprecation_reason(&self) -> Resolved {
+        Resolved::string_opt(self.deprecation_reason())
+    }
+}
+
+macro_rules! directives_impl {
+    ($ty: ty) => {
+        impl IspDirectives for $ty {
+            fn directives(&self) -> &[hir::Directive] {
+                self.directives()
+            }
+        }
+    };
+}
+
+directives_impl!(hir::FieldDefinition);
+directives_impl!(hir::InputValueDefinition);
+directives_impl!(hir::EnumValueDefinition);
 
 /*
 enum __TypeKind {
@@ -392,15 +551,6 @@ enum __TypeKind {
   NON_NULL
 }
 
-type __Field {
-  name: String!
-  description: String
-  args(includeDeprecated: Boolean = false): [__InputValue!]!
-  type: __Type!
-  isDeprecated: Boolean!
-  deprecationReason: String
-}
-
 type __InputValue {
   name: String!
   description: String
@@ -410,12 +560,7 @@ type __InputValue {
   deprecationReason: String
 }
 
-type __EnumValue {
-  name: String!
-  description: String
-  isDeprecated: Boolean!
-  deprecationReason: String
-}
+
 
 type __Directive {
   name: String!
