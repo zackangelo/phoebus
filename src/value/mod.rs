@@ -6,8 +6,8 @@
 
 // mod deserializer;
 // mod macros;
-// mod serializer;
-// mod value_serde;
+mod serializer;
+mod value_serde;
 // mod variables;
 
 use std::{
@@ -24,7 +24,7 @@ pub use indexmap;
 use indexmap::IndexMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 pub use serde_json::Number;
-// pub use serializer::{to_value, SerializerError};
+pub use serializer::{to_value, SerializerError};
 // pub use variables::Variables;
 
 /// A GraphQL name.
@@ -305,8 +305,7 @@ impl ConstValue {
     ///
     /// Fails if serialization fails (see enum docs for more info).
     pub fn into_json(self) -> serde_json::Result<serde_json::Value> {
-        todo!()
-        // self.try_into()
+        self.try_into()
     }
 
     /// Attempt to convert JSON into a value. This is equivalent to the
@@ -316,8 +315,7 @@ impl ConstValue {
     ///
     /// Fails if deserialization fails (see enum docs for more info).
     pub fn from_json(json: serde_json::Value) -> serde_json::Result<Self> {
-        todo!()
-        // json.try_into()
+        json.try_into()
     }
 }
 
@@ -343,19 +341,19 @@ impl Display for ConstValue {
     }
 }
 
-// impl TryFrom<serde_json::Value> for ConstValue {
-//     type Error = serde_json::Error;
-//     fn try_from(value: serde_json::Value) -> Result<Self, Self::Error> {
-//         Self::deserialize(value)
-//     }
-// }
+impl TryFrom<serde_json::Value> for ConstValue {
+    type Error = serde_json::Error;
+    fn try_from(value: serde_json::Value) -> Result<Self, Self::Error> {
+        Self::deserialize(value)
+    }
+}
 
-// impl TryFrom<ConstValue> for serde_json::Value {
-//     type Error = serde_json::Error;
-//     fn try_from(value: ConstValue) -> Result<Self, Self::Error> {
-//         serde_json::to_value(value)
-//     }
-// }
+impl TryFrom<ConstValue> for serde_json::Value {
+    type Error = serde_json::Error;
+    fn try_from(value: ConstValue) -> Result<Self, Self::Error> {
+        serde_json::to_value(value)
+    }
+}
 
 /// A GraphQL value, for example `1`, `$name` or `"Hello World!"`. This is
 /// [`ConstValue`](enum.ConstValue.html) with variables.
@@ -438,8 +436,7 @@ impl Value {
     ///
     /// Fails if serialization fails (see enum docs for more info).
     pub fn into_json(self) -> serde_json::Result<serde_json::Value> {
-        // self.try_into()
-        todo!()
+        self.try_into()
     }
 
     /// Attempt to convert JSON into a value. This is equivalent to the
@@ -449,8 +446,7 @@ impl Value {
     ///
     /// Fails if deserialization fails (see enum docs for more info).
     pub fn from_json(json: serde_json::Value) -> serde_json::Result<Self> {
-        // json.try_into()
-        todo!()
+        json.try_into()
     }
 }
 
@@ -483,18 +479,18 @@ impl From<ConstValue> for Value {
     }
 }
 
-// impl TryFrom<serde_json::Value> for Value {
-//     type Error = serde_json::Error;
-//     fn try_from(value: serde_json::Value) -> Result<Self, Self::Error> {
-//         Self::deserialize(value)
-//     }
-// }
-// impl TryFrom<Value> for serde_json::Value {
-//     type Error = serde_json::Error;
-//     fn try_from(value: Value) -> Result<Self, Self::Error> {
-//         serde_json::to_value(value)
-//     }
-// }
+impl TryFrom<serde_json::Value> for Value {
+    type Error = serde_json::Error;
+    fn try_from(value: serde_json::Value) -> Result<Self, Self::Error> {
+        Self::deserialize(value)
+    }
+}
+impl TryFrom<Value> for serde_json::Value {
+    type Error = serde_json::Error;
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        serde_json::to_value(value)
+    }
+}
 
 fn write_quoted(s: &str, f: &mut Formatter<'_>) -> fmt::Result {
     f.write_char('"')?;

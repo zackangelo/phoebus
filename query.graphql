@@ -1,6 +1,7 @@
 query {
     peopleCount,
     person {
+        __typename
         firstName
         lastName
         renamedAge: age
@@ -8,6 +9,7 @@ query {
             name
 
             ... on Dog {
+                __typename
                 dogBreed
             }
 

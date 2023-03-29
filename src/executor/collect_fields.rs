@@ -1,11 +1,12 @@
 use crate::Name;
 use anyhow::{anyhow, Result};
-use apollo_compiler::{
-    hir::{self, Directive, Field, ObjectTypeDefinition, Selection, SelectionSet, TypeDefinition},
-    HirDatabase, Snapshot,
+use apollo_compiler::hir::{
+    self, Directive, Field, ObjectTypeDefinition, Selection, SelectionSet, TypeDefinition,
 };
 use indexmap::IndexMap;
 use std::sync::Arc;
+
+use super::ExecCtx;
 
 /// Collects a selection set's fields and fragments into a flattened represention to
 /// ensure resolvers are not invoked more than once for a given field.
@@ -14,12 +15,12 @@ use std::sync::Arc;
 ///
 /// https://spec.graphql.org/draft/#sec-Field-Collection
 pub fn collect_fields(
-    snapshot: &Snapshot,
+    ectx: &ExecCtx,
     sel_set: &SelectionSet,
     concrete_type: &ObjectTypeDefinition,
 ) -> Result<IndexMap<Name, Vec<Arc<Field>>>> {
     fn inner(
-        snapshot: &Snapshot,
+        ectx: &ExecCtx,
         sel_set: &SelectionSet,
         concrete_type: &ObjectTypeDefinition,
         grouped_fields: &mut IndexMap<Name, Vec<Arc<Field>>>,
@@ -38,22 +39,23 @@ pub fn collect_fields(
                     //TODO what happens when grouped fields have arguments that differ? need to check for that case and handle explictly
                 }
                 Selection::FragmentSpread(frag_spread) => {
-                    let frag_def = frag_spread.fragment(&**snapshot).ok_or(anyhow!(
-                        "fragment definition not found: {}",
-                        frag_spread.name()
-                    ))?;
+                    let frag_def = ectx.fragment(frag_spread.name()).ok_or_else(|| {
+                        anyhow!("fragment definition not found: {}", frag_spread.name())
+                    })?;
 
                     let type_cond = frag_def.type_condition();
-                    let type_cond_type = snapshot
-                        .find_type_definition_by_name(type_cond.to_owned())
-                        .ok_or(anyhow!(
-                            "fragment definition type condition type not found: {}",
-                            type_cond
-                        ))?;
+                    let type_cond_type =
+                        ectx.find_type_definition_by_name(type_cond)
+                            .ok_or_else(|| {
+                                anyhow!(
+                                    "fragment definition type condition type not found: {}",
+                                    type_cond
+                                )
+                            })?;
 
-                    if fragment_type_applies(concrete_type, &type_cond_type)? {
+                    if fragment_type_applies(ectx, concrete_type, &type_cond_type)? {
                         inner(
-                            snapshot,
+                            ectx,
                             frag_def.selection_set(),
                             concrete_type,
                             grouped_fields,
@@ -62,16 +64,18 @@ pub fn collect_fields(
                 }
                 Selection::InlineFragment(inline_frag) => {
                     if let Some(type_cond) = inline_frag.type_condition() {
-                        let type_cond_type = snapshot
-                            .find_type_definition_by_name(type_cond.to_owned())
-                            .ok_or(anyhow!(
-                                "inline fragment type condition type not found: {}",
-                                type_cond
-                            ))?;
+                        let type_cond_type = ectx
+                            .find_type_definition_by_name(type_cond)
+                            .ok_or_else(|| {
+                                anyhow!(
+                                    "inline fragment type condition type not found: {}",
+                                    type_cond
+                                )
+                            })?;
 
-                        if fragment_type_applies(concrete_type, &type_cond_type)? {
+                        if fragment_type_applies(ectx, concrete_type, &type_cond_type)? {
                             inner(
-                                snapshot,
+                                ectx,
                                 inline_frag.selection_set(),
                                 concrete_type,
                                 grouped_fields,
@@ -86,7 +90,7 @@ pub fn collect_fields(
     }
 
     let mut grouped_fields = IndexMap::new();
-    inner(snapshot, sel_set, concrete_type, &mut grouped_fields)?;
+    inner(ectx, sel_set, concrete_type, &mut grouped_fields)?;
     Ok(grouped_fields)
 }
 
@@ -116,7 +120,7 @@ fn should_skip(sel: &Selection) -> Result<bool> {
     if let Some(skip) = skip_directive {
         let if_arg = skip
             .argument_by_name("if")
-            .ok_or(anyhow!("if expression missing from @skip"))?;
+            .ok_or_else(|| anyhow!("if expression missing from @skip"))?;
 
         match if_arg {
             hir::Value::Boolean(skip_if) => Ok(*skip_if),
@@ -134,7 +138,7 @@ fn should_include(sel: &Selection) -> Result<bool> {
     if let Some(include) = include_directive {
         let if_arg = include
             .argument_by_name("if")
-            .ok_or(anyhow!("if expression missing from @include"))?;
+            .ok_or_else(|| anyhow!("if expression missing from @include"))?;
 
         match if_arg {
             hir::Value::Boolean(include_if) => Ok(*include_if),
@@ -147,6 +151,7 @@ fn should_include(sel: &Selection) -> Result<bool> {
 }
 
 fn fragment_type_applies(
+    exec_ctx: &ExecCtx,
     obj_type: &ObjectTypeDefinition,
     frag_type: &TypeDefinition,
 ) -> Result<bool> {
@@ -154,16 +159,12 @@ fn fragment_type_applies(
         TypeDefinition::ObjectTypeDefinition(obj_frag_type) => {
             Ok(obj_type == obj_frag_type.as_ref())
         }
-        TypeDefinition::InterfaceTypeDefinition(obj_iface_type) => Ok(obj_type
-            .implements_interfaces()
-            .iter()
-            .find(|ii| ii.interface() == obj_iface_type.name())
-            .is_some()),
-        TypeDefinition::UnionTypeDefinition(union_type) => Ok(union_type
-            .union_members()
-            .iter()
-            .find(|ut| ut.name() == obj_type.name())
-            .is_some()),
+        TypeDefinition::InterfaceTypeDefinition(_obj_iface_type) => {
+            Ok(exec_ctx.is_subtype(obj_type.name(), frag_type.name()))
+        }
+        TypeDefinition::UnionTypeDefinition(union_type) => {
+            Ok(exec_ctx.is_subtype(obj_type.name(), union_type.name()))
+        }
         invalid @ _ => Err(anyhow!(
             "invalid type in fragment type condition {}",
             invalid.name()

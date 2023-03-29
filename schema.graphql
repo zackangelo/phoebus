@@ -1,10 +1,10 @@
 schema {
-    query: Query
+  query: Query
 }
 
 type Query {
-    peopleCount: Int!
-    person: Person!
+  peopleCount: Int!
+  person: Person!
 }
 
 interface Pet {
@@ -12,29 +12,29 @@ interface Pet {
 }
 
 type Dog implements Pet {
-    name: String!
-    dogBreed: DogBreed!
+  name: String!
+  dogBreed: DogBreed!
 }
 
 type Cat implements Pet {
-    name: String!
-    catBreed: CatBreed!
+  name: String!
+  catBreed: CatBreed!
 }
 
 type Person {
-    firstName: String!
-    lastName: String!
-    age: Int
-    pets: [Pet!]!
+  firstName: String!
+  lastName: String!
+  age: Int
+  pets: [Pet!]!
 }
 
 enum DogBreed {
-    CHIHUAHUA
-    RETRIEVER
-    LAB
+  CHIHUAHUA
+  RETRIEVER
+  LAB
 }
 
 enum CatBreed {
-    TABBY
-    MIX
+  TABBY
+  MIX
 }
