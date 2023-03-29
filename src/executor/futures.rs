@@ -17,7 +17,7 @@ use std::{
     task::{Context, Poll},
     time::Instant,
 };
-use tracing::{info, span, Instrument, Level};
+use tracing::{debug, span, Instrument, Level};
 
 pub struct ExecuteSelectionSet<'a> {
     field_futs: IndexMap<Name, Pin<Box<dyn Future<Output = Result<ConstValue>> + Send + 'a>>>,
@@ -126,7 +126,7 @@ fn resolve_field<'a>(
             let self_end = Instant::now();
             let v = resolve_to_value(ectx, field, resolved).await;
             let end = Instant::now();
-            info!(
+            debug!(
                 "time self: {}μs, full: {}μs",
                 self_end.duration_since(start).as_micros(),
                 end.duration_since(start).as_micros()
@@ -152,7 +152,7 @@ fn resolve_to_value<'a>(
 
             let mut ix = 0;
             for element in arr {
-                let span = span!(Level::INFO, "ix", "{}", ix);
+                let span = span!(Level::DEBUG, "ix", "{}", ix);
                 let fut = resolve_to_value(ectx, field.clone(), element).instrument(span);
                 futs.push_back(fut);
                 ix = ix + 1;

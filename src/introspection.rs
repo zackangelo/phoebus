@@ -8,14 +8,12 @@ use crate::{
 use anyhow::anyhow;
 use anyhow::Result;
 use apollo_compiler::hir::{self, ObjectTypeDefinition, TypeSystem};
-use std::sync::Arc;
-
 use async_trait::async_trait;
-use tokio::sync::Mutex;
+use std::sync::Arc;
 
 /// ObjectResolver that adds __typename introspection to another resolver
 pub struct IspObjectResolver<'a> {
-    pub(crate) type_def: Arc<ObjectTypeDefinition>,
+    pub(crate) type_def: Arc<ObjectTypeDefinition>, //TODO probably use reference instead
     pub(crate) inner: &'a dyn ObjectResolver,
 }
 
