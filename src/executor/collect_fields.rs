@@ -1,4 +1,3 @@
-use crate::Name;
 use anyhow::{anyhow, Result};
 use apollo_compiler::hir::{
     self, Directive, Field, ObjectTypeDefinition, Selection, SelectionSet, TypeDefinition,
@@ -18,12 +17,12 @@ pub fn collect_fields(
     ectx: &ExecCtx,
     sel_set: &SelectionSet,
     concrete_type: &ObjectTypeDefinition,
-) -> Result<IndexMap<Name, Vec<Arc<Field>>>> {
+) -> Result<IndexMap<String, Vec<Arc<Field>>>> {
     fn inner(
         ectx: &ExecCtx,
         sel_set: &SelectionSet,
         concrete_type: &ObjectTypeDefinition,
-        grouped_fields: &mut IndexMap<Name, Vec<Arc<Field>>>,
+        grouped_fields: &mut IndexMap<String, Vec<Arc<Field>>>,
     ) -> Result<()> {
         for sel in sel_set.selection() {
             if should_skip(sel)? || !should_include(sel)? {
@@ -33,7 +32,7 @@ pub fn collect_fields(
             match sel {
                 Selection::Field(field) => {
                     let response_key = field.alias().map(|a| a.0.as_str()).unwrap_or(field.name());
-                    let response_key = Name::new(response_key);
+                    let response_key = response_key.to_owned();
                     let field_entry = grouped_fields.entry(response_key);
                     field_entry.or_default().push(field.clone());
                     //TODO what happens when grouped fields have arguments that differ? need to check for that case and handle explictly

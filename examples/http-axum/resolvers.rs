@@ -1,46 +1,5 @@
 use anyhow::{anyhow, Result};
-use resolver::{ObjectResolver, Resolved};
-use std::time::Instant;
-use tracing::info;
-use tracing_subscriber::EnvFilter;
-use value::{ConstValue, Name};
-
-use crate::executor::Executor;
-
-mod executor;
-mod introspection;
-mod resolver;
-mod value;
-
-const SCHEMA: &str = include_str!("../schema.graphql");
-const QUERY: &str = include_str!("../introspection.graphql");
-
-#[tokio::main]
-async fn main() -> Result<()> {
-    // tracing_subscriber::fmt::init();
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
-        .with_thread_ids(true)
-        .init();
-
-    info!("phoebus server starting...");
-
-    // tokio::spawn(async move {
-    let executor = Executor::new(SCHEMA).unwrap();
-    for _i in 0..1 {
-        let start = Instant::now();
-        let result = executor.run(QUERY, QueryResolver).await.unwrap();
-        let duration_us = Instant::now().duration_since(start).as_micros();
-        println!(
-            "{} (took {}μs)",
-            serde_json::to_string_pretty(&result)?,
-            duration_us,
-        );
-    }
-    // });
-
-    Ok(())
-}
+use phoebus::{ConstValue, Name, ObjectResolver, Resolved};
 
 pub struct QueryResolver;
 

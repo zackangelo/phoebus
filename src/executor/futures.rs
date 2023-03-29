@@ -4,7 +4,7 @@
 
 use crate::{
     resolver::{ObjectResolver, Resolved},
-    value::{ConstValue, Name},
+    value::{self, ConstValue},
 };
 use anyhow::{anyhow, Result};
 use apollo_compiler::hir::{self, Field, SelectionSet};
@@ -20,9 +20,9 @@ use std::{
 use tracing::{debug, span, Instrument, Level};
 
 pub struct ExecuteSelectionSet<'a> {
-    field_futs: IndexMap<Name, Pin<Box<dyn Future<Output = Result<ConstValue>> + Send + 'a>>>,
-    output_map: Option<IndexMap<Name, ConstValue>>,
-    field_errors: IndexMap<Name, anyhow::Error>,
+    field_futs: IndexMap<String, Pin<Box<dyn Future<Output = Result<ConstValue>> + Send + 'a>>>,
+    output_map: Option<IndexMap<value::Name, ConstValue>>,
+    field_errors: IndexMap<String, anyhow::Error>,
 }
 
 use super::{collect_fields::collect_fields, ExecCtx};
@@ -51,6 +51,7 @@ impl<'a> ExecuteSelectionSet<'a> {
 
             let field_fut = resolve_field(ectx, obj_resolver, field.clone());
 
+            //FIXME fields out of order when constructed in this way, need to pre-arrange fields in ::new()
             match field_fut {
                 Ok(ffut) => {
                     field_futs.insert(response_key, ffut);
@@ -87,7 +88,7 @@ impl<'a> Future for ExecuteSelectionSet<'a> {
 
             match field_poll {
                 Poll::Ready(Ok(field_val)) => {
-                    output_map.insert(k.clone(), field_val);
+                    output_map.insert(value::Name::new(k), field_val);
                     false
                 }
                 Poll::Ready(Err(field_err)) => {
@@ -103,7 +104,7 @@ impl<'a> Future for ExecuteSelectionSet<'a> {
                 Poll::Ready(Err(anyhow!("field errors: {:?}", self.field_errors)))
             } else {
                 let result = self.output_map.take().expect("output map state error");
-                Poll::Ready(Ok(ConstValue::Object(result))) //TODO remove clone
+                Poll::Ready(Ok(result.into())) //TODO remove clone
             }
         } else {
             Poll::Pending
