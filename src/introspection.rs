@@ -7,10 +7,7 @@ use crate::{
 };
 use anyhow::anyhow;
 use anyhow::Result;
-use apollo_compiler::{
-    hir::{self, ObjectTypeDefinition, TypeSystem},
-    HirDatabase, Snapshot,
-};
+use apollo_compiler::hir::{self, ObjectTypeDefinition, TypeSystem};
 use std::sync::Arc;
 
 use async_trait::async_trait;
