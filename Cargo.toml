@@ -21,3 +21,6 @@ futures = "0.3.27"
 
 [dev-dependencies] 
 tracing-subscriber = { version = "0.3.16", features = [ "env-filter" ] }
+handlebars = "4.3.6"
+axum = { version = "0.6.12", features = ["json"] }
+

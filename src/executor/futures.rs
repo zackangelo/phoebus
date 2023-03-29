@@ -51,6 +51,7 @@ impl<'a> ExecuteSelectionSet<'a> {
 
             let field_fut = resolve_field(ectx, obj_resolver, field.clone());
 
+            //FIXME fields out of order when constructed in this way, need to pre-arrange fields in ::new()
             match field_fut {
                 Ok(ffut) => {
                     field_futs.insert(response_key, ffut);

@@ -18,6 +18,7 @@ use std::sync::Arc;
 mod collect_fields;
 mod futures;
 
+#[derive(Clone)]
 pub struct Executor {
     type_system: Arc<TypeSystem>,
     exec_schema: Arc<ExecSchema>,
@@ -55,6 +56,7 @@ impl Executor {
         &'a self,
         query: &'a str,
         query_resolver: R,
+        operation_name: Option<String>,
     ) -> Result<ConstValue> {
         let mut compiler = ApolloCompiler::new();
         compiler.set_type_system_hir(self.type_system.clone());
@@ -80,7 +82,7 @@ impl Executor {
         }
 
         let _has_errors = diags.iter().filter(|d| d.data.is_error()).count() > 0;
-        // https://github.com/apollographql/apollo-rs/issues/504
+        // proceed anyway instead of returning errors b/c https://github.com/apollographql/apollo-rs/issues/504
         // if has_errors {
         //     return Err(anyhow!("graphql had errors"));
         // }
@@ -90,7 +92,7 @@ impl Executor {
             let all_ops = compiler.db.all_operations();
             let default_query_op = all_ops
                 .iter()
-                .find(|op| op.name().is_none())
+                .find(|op| op.name() == operation_name.as_ref().map(|s| s.as_str()))
                 .ok_or_else(|| anyhow!("default query not found"))?;
 
             let sel_set = default_query_op.selection_set();
@@ -107,7 +109,7 @@ impl Executor {
             );
 
             let schema_resolver = IspRootResolver {
-                // db: snapshot2,
+                schema_def: compiler.db.schema(),
                 inner: &query_resolver,
                 ts,
             };

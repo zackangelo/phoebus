@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::{error::Error, fmt};
 
 use indexmap::IndexMap;

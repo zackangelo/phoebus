@@ -7,7 +7,9 @@ use crate::{
 };
 use anyhow::anyhow;
 use anyhow::Result;
-use apollo_compiler::hir::{self, InputValueDefinition, ObjectTypeDefinition, TypeSystem};
+use apollo_compiler::hir::{
+    self, InputValueDefinition, ObjectTypeDefinition, SchemaDefinition, TypeSystem,
+};
 use async_trait::async_trait;
 use std::sync::Arc;
 
@@ -34,6 +36,7 @@ impl<'a> ObjectResolver for IspObjectResolver<'a> {
 pub struct IspRootResolver<'a> {
     pub(crate) ts: Arc<hir::TypeSystem>,
     pub(crate) inner: &'a dyn ObjectResolver,
+    pub(crate) schema_def: Arc<SchemaDefinition>,
 }
 
 #[async_trait]
@@ -42,6 +45,7 @@ impl<'a> ObjectResolver for IspRootResolver<'a> {
         match name {
             "__schema" => {
                 let resolver = IspSchemaResolver {
+                    schema_def: self.schema_def.clone(),
                     ts: self.ts.clone(),
                 };
                 Ok(Resolved::object(resolver))
@@ -62,13 +66,14 @@ type __Schema {
 }
 */
 pub struct IspSchemaResolver {
+    pub(crate) schema_def: Arc<SchemaDefinition>,
     pub(crate) ts: Arc<TypeSystem>,
 }
 
 #[async_trait]
 impl ObjectResolver for IspSchemaResolver {
     async fn resolve_field(&self, name: &str) -> Result<Resolved> {
-        match name {
+        Ok(match name {
             "description" => todo!(),
             "types" => {
                 let all_type_defs = self
@@ -87,14 +92,19 @@ impl ObjectResolver for IspSchemaResolver {
                     }) //TODO make reference work?
                     .collect::<Vec<_>>();
 
-                Ok(Resolved::Array(all_type_defs))
+                Resolved::Array(all_type_defs)
             }
-            "queryType" => todo!(),
-            "mutationType" => todo!(),
-            "subscriptionType" => todo!(),
-            "directives" => todo!(),
-            invalid => Err(anyhow!("invalid type field: {}", invalid)),
-        }
+            "queryType" => self
+                .schema_def
+                .query()
+                .map(|query| resolve_named_ty(&self.ts, query))
+                .unwrap_or(Resolved::null()),
+            //TODO implement these other fields
+            // "mutationType" => todo!(),
+            // "subscriptionType" => todo!(),
+            // "directives" => todo!(),
+            _ => Resolved::null(),
+        })
     }
 }
 
@@ -490,6 +500,15 @@ impl ObjectResolver for IspEnumValueResolver {
     }
 }
 
+fn resolve_named_ty(ts: &Arc<TypeSystem>, ty_name: &str) -> Resolved {
+    resolve_ty(
+        ts,
+        &hir::Type::Named {
+            name: ty_name.to_owned(),
+            loc: None,
+        },
+    )
+}
 fn resolve_ty(ts: &Arc<TypeSystem>, ty: &hir::Type) -> Resolved {
     Resolved::object(IspTypeResolver {
         ty: ty.clone(),
