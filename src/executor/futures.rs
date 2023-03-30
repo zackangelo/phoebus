@@ -5,6 +5,7 @@
 use crate::{
     resolver::{ObjectResolver, Resolved},
     value::{self, ConstValue},
+    Ctx,
 };
 use anyhow::{anyhow, Result};
 use apollo_compiler::hir::{self, Field, SelectionSet};
@@ -122,8 +123,12 @@ fn resolve_field<'a>(
     let span = span!(Level::INFO, "field", "{}", field.name());
     Ok(Box::pin(
         async move {
+            let ctx = Ctx {
+                field: field.clone(),
+            };
+
             let start = Instant::now();
-            let resolved = resolver.resolve_field(field.name()).await?;
+            let resolved = resolver.resolve_field(&ctx, field.name()).await?;
             let self_end = Instant::now();
             let v = resolve_to_value(ectx, field, resolved).await;
             let end = Instant::now();

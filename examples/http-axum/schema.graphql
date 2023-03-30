@@ -4,7 +4,12 @@ schema {
 
 type Query {
   peopleCount: Int!
-  person: Person!
+  person(
+    testStringArg: String
+    testIntArg: Int
+    testFloatArg: Float
+    testBoolArg: Boolean
+  ): Person!
 }
 
 interface Pet {
@@ -25,6 +30,10 @@ type Person {
   firstName: String!
   lastName: String!
   age: Int
+  stringArgVal: String
+  intArgVal: Int
+  floatArgVal: Float
+  boolArgVal: Boolean
   pets: [Pet!]!
 }
 

@@ -1,5 +1,92 @@
+use std::{fmt::Display, sync::Arc};
+
 use crate::value::{ConstValue, Name};
-use anyhow::Result;
+use anyhow::{anyhow, Result};
+use apollo_compiler::hir;
+
+/// Resolver context
+pub struct Ctx {
+    pub(crate) field: Arc<hir::Field>,
+}
+
+impl Ctx {
+    pub fn try_arg<T: TryFrom<CtxArg>>(&self, name: &str) -> Result<T>
+    where
+        T::Error: Display,
+    {
+        let arg = self
+            .field
+            .arguments()
+            .into_iter()
+            .find(|a| a.name() == name)
+            .ok_or_else(|| anyhow!("argument not found: {}", name))?;
+
+        let arg = arg.clone(); //TODO remove find/clone by passing in a map
+        T::try_from(CtxArg(arg)).map_err(|err| anyhow!("argument conversion error: {}", err))
+    }
+
+    pub fn arg<T: TryFrom<CtxArg>>(&self, name: &str) -> Option<T> {
+        let arg = self
+            .field
+            .arguments()
+            .into_iter()
+            .find(|a| a.name() == name);
+
+        let arg = arg.cloned(); //TODO remove find/clone by passing in a map
+
+        match arg {
+            Some(arg) => T::try_from(CtxArg(arg)).ok(),
+            None => None,
+        }
+    }
+}
+
+#[repr(transparent)]
+pub struct CtxArg(hir::Argument);
+
+impl TryFrom<CtxArg> for String {
+    type Error = anyhow::Error;
+
+    fn try_from(value: CtxArg) -> std::result::Result<Self, Self::Error> {
+        match value.0.value() {
+            hir::Value::String(s) => Ok(s.clone()),
+            _ => Err(anyhow!("invalid argument type")),
+        }
+    }
+}
+
+impl TryFrom<CtxArg> for i32 {
+    type Error = anyhow::Error;
+
+    fn try_from(value: CtxArg) -> std::result::Result<Self, Self::Error> {
+        match value.0.value() {
+            hir::Value::Int(f) => f.to_i32_checked().ok_or(anyhow!("int conversion error")),
+            _ => Err(anyhow!("invalid argument type")),
+        }
+    }
+}
+
+impl TryFrom<CtxArg> for f64 {
+    type Error = anyhow::Error;
+
+    fn try_from(value: CtxArg) -> std::result::Result<Self, Self::Error> {
+        match value.0.value() {
+            hir::Value::Float(f) => Ok(f.get()),
+            _ => Err(anyhow!("invalid argument type")),
+        }
+    }
+}
+
+impl TryFrom<CtxArg> for bool {
+    type Error = anyhow::Error;
+
+    fn try_from(value: CtxArg) -> std::result::Result<Self, Self::Error> {
+        match value.0.value() {
+            hir::Value::Boolean(f) => Ok(*f),
+            _ => Err(anyhow!("invalid argument type")),
+        }
+    }
+}
 
 #[async_trait::async_trait]
 pub trait ObjectResolver: Send + Sync {
@@ -9,7 +96,7 @@ pub trait ObjectResolver: Send + Sync {
     }
 
     /// Resolves the value of the specified field
-    async fn resolve_field(&self, name: &str) -> Result<Resolved>;
+    async fn resolve_field(&self, ctx: &Ctx, name: &str) -> Result<Resolved>;
 }
 
 pub enum Resolved {
