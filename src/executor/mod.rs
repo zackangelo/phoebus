@@ -33,9 +33,9 @@ impl Executor {
         let has_errors = diags.iter().filter(|d| d.data.is_error()).count() > 0;
 
         for diag in diags.iter() {
-            // if diag.data.is_error() {
-            tracing::error!("{}", diag);
-            // }
+            if diag.data.is_error() {
+                tracing::error!("{}", diag);
+            }
         }
 
         if has_errors {
@@ -81,11 +81,11 @@ impl Executor {
             }
         }
 
-        let _has_errors = diags.iter().filter(|d| d.data.is_error()).count() > 0;
-        // proceed anyway instead of returning errors b/c https://github.com/apollographql/apollo-rs/issues/504
-        // if has_errors {
-        //     return Err(anyhow!("graphql had errors"));
-        // }
+        let has_errors = diags.iter().filter(|d| d.data.is_error()).count() > 0;
+        if has_errors {
+            return Err(anyhow!("graphql had errors"));
+        }
+
         let ectx = ExecCtx::new(&compiler.db, self.exec_schema.clone());
 
         let result_fut = tokio::spawn(async move {

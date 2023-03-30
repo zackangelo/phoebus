@@ -2,7 +2,7 @@
 //! introspection fields
 
 use crate::{
-    resolver::{ObjectResolver, Resolved},
+    resolver::{Ctx, ObjectResolver, Resolved},
     value::ConstValue,
 };
 use anyhow::anyhow;
@@ -21,12 +21,12 @@ pub struct IspObjectResolver<'a> {
 
 #[async_trait]
 impl<'a> ObjectResolver for IspObjectResolver<'a> {
-    async fn resolve_field(&self, name: &str) -> Result<Resolved> {
+    async fn resolve_field(&self, ctx: &Ctx, name: &str) -> Result<Resolved> {
         match name {
             "__typename" => Ok(Resolved::Value(ConstValue::String(
                 self.type_def.name().to_owned(),
             ))),
-            other => self.inner.resolve_field(other).await,
+            other => self.inner.resolve_field(ctx, other).await,
         }
     }
 }
@@ -41,7 +41,7 @@ pub struct IspRootResolver<'a> {
 
 #[async_trait]
 impl<'a> ObjectResolver for IspRootResolver<'a> {
-    async fn resolve_field(&self, name: &str) -> Result<Resolved> {
+    async fn resolve_field(&self, ctx: &Ctx, name: &str) -> Result<Resolved> {
         match name {
             "__schema" => {
                 let resolver = IspSchemaResolver {
@@ -50,7 +50,7 @@ impl<'a> ObjectResolver for IspRootResolver<'a> {
                 };
                 Ok(Resolved::object(resolver))
             }
-            other => self.inner.resolve_field(other).await,
+            other => self.inner.resolve_field(ctx, other).await,
         }
     }
 }
@@ -72,7 +72,7 @@ pub struct IspSchemaResolver {
 
 #[async_trait]
 impl ObjectResolver for IspSchemaResolver {
-    async fn resolve_field(&self, name: &str) -> Result<Resolved> {
+    async fn resolve_field(&self, _: &Ctx, name: &str) -> Result<Resolved> {
         Ok(match name {
             "description" => todo!(),
             "types" => {
@@ -391,7 +391,7 @@ impl IspTypeResolver {
 }
 #[async_trait]
 impl ObjectResolver for IspTypeResolver {
-    async fn resolve_field(&self, name: &str) -> Result<Resolved> {
+    async fn resolve_field(&self, _ctx: &Ctx, name: &str) -> Result<Resolved> {
         //TODO this match will re-run for every field, probably pre-evaluate it in a constructor
         match &self.ty {
             hir::Type::List { ty, .. } => self.resolve_list_type(name, ty.as_ref()).await,
@@ -419,7 +419,7 @@ pub struct IspFieldResolver {
 
 #[async_trait]
 impl ObjectResolver for IspFieldResolver {
-    async fn resolve_field(&self, name: &str) -> Result<Resolved> {
+    async fn resolve_field(&self, _ctx: &Ctx, name: &str) -> Result<Resolved> {
         Ok(match name {
             "name" => Resolved::string(self.field_def.name()),
             "description" => Resolved::string_opt(self.field_def.description()),
@@ -460,7 +460,7 @@ pub struct IspInputValueResolver {
 //   }
 #[async_trait]
 impl ObjectResolver for IspInputValueResolver {
-    async fn resolve_field(&self, name: &str) -> Result<Resolved> {
+    async fn resolve_field(&self, _ctx: &Ctx, name: &str) -> Result<Resolved> {
         Ok(match name {
             "name" => Resolved::string(self.input_value_def.name()),
             "description" => Resolved::string_opt(self.input_value_def.description()),
@@ -489,7 +489,7 @@ pub struct IspEnumValueResolver {
 
 #[async_trait]
 impl ObjectResolver for IspEnumValueResolver {
-    async fn resolve_field(&self, name: &str) -> Result<Resolved> {
+    async fn resolve_field(&self, _ctx: &Ctx, name: &str) -> Result<Resolved> {
         Ok(match name {
             "name" => Resolved::string(self.enum_value.enum_value()),
             "description" => Resolved::string_opt(self.enum_value.description()),
