@@ -3,6 +3,7 @@ use std::{fmt::Display, sync::Arc};
 use crate::value::{ConstValue, Name};
 use anyhow::{anyhow, Result};
 use apollo_compiler::hir;
+use async_trait::async_trait;
 
 /// Resolver context
 pub struct Ctx {
@@ -106,6 +107,7 @@ pub enum Resolved {
 }
 
 impl Resolved {
+    #[inline]
     pub fn null() -> Self {
         Self::Value(ConstValue::Null)
     }
@@ -159,5 +161,12 @@ impl<R: Into<Resolved>> From<Vec<R>> for Resolved {
     fn from(value: Vec<R>) -> Self {
         let resolved = value.into_iter().map(|r| r.into()).collect::<Vec<_>>();
         Resolved::Array(resolved)
+    }
+}
+
+#[async_trait]
+impl<T: ObjectResolver> ObjectResolver for Arc<T> {
+    async fn resolve_field(&self, ctx: &Ctx, name: &str) -> Result<Resolved> {
+        T::resolve_field(&self, ctx, name).await
     }
 }

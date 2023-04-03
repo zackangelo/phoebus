@@ -9,7 +9,8 @@ use apollo_compiler::{
         Field, FieldDefinition, FragmentDefinition, ObjectTypeDefinition, TypeDefinition,
         TypeSystem,
     },
-    ApolloCompiler, HirDatabase,
+    validation::ValidationDatabase,
+    ApolloCompiler, HirDatabase, RootDatabase,
 };
 use std::{collections::HashMap, time::Instant};
 
@@ -42,14 +43,38 @@ impl Executor {
             return Err(anyhow!("graphql had errors"));
         }
 
-        let type_system = compiler.db.type_system();
-        let exec_schema = Arc::new(ExecSchema::new(&compiler.db));
+        // let type_system = compiler.db.type_system();
+        // let exec_schema = Arc::new(ExecSchema::new(&compiler.db));
 
-        Ok(Self {
-            // compiler,
+        // Ok(Self {
+        //     // compiler,
+        //     type_system,
+        //     exec_schema,
+        // })
+
+        Ok(Self::from_hir(&compiler.db))
+    }
+
+    pub fn from_hir(db: &RootDatabase) -> Self {
+        let type_system = db.type_system();
+        let exec_schema = Arc::new(ExecSchema::new(db));
+
+        Self {
             type_system,
             exec_schema,
-        })
+        }
+    }
+
+    pub fn from_type_system(type_system: Arc<TypeSystem>) -> Self {
+        let mut compiler = ApolloCompiler::new();
+        compiler.set_type_system_hir(type_system.clone());
+
+        let exec_schema = Arc::new(ExecSchema::new(&compiler.db));
+
+        Self {
+            type_system,
+            exec_schema,
+        }
     }
 
     pub async fn run<'a, R: ObjectResolver + 'static>(
@@ -62,23 +87,23 @@ impl Executor {
         compiler.set_type_system_hir(self.type_system.clone());
 
         let compile_start = Instant::now();
-        let _query_file_id = compiler.add_executable(query, "query.graphql");
-        tracing::debug!(
+        let query_file_id = compiler.add_executable(query, "query.graphql");
+        tracing::info!(
             "compile took: {}μs",
             Instant::now().duration_since(compile_start).as_micros()
         );
 
         let validate_start = Instant::now();
-        let diags = compiler.validate();
-        tracing::debug!(
+        let diags = compiler.db.validate_executable(query_file_id);
+        tracing::info!(
             "validate took: {}μs",
             Instant::now().duration_since(validate_start).as_micros()
         );
 
         for diag in diags.iter() {
-            if diag.data.is_error() {
-                tracing::error!("query error: {}", diag);
-            }
+            // if diag.data.is_error() {
+            tracing::error!("query error: {}", diag);
+            // }
         }
 
         let has_errors = diags.iter().filter(|d| d.data.is_error()).count() > 0;

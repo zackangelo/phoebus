@@ -334,7 +334,11 @@ impl IspTypeResolver {
             "description" => Ok(Resolved::string_opt(type_def.description())), //: String -> TODO is this shared with type definition?
             "fields" => Ok(Resolved::null()), //(includeDeprecated: Boolean = false): [__Field!]
             "interfaces" => Ok(Resolved::null()), //: [__Type!]
-            "possibleTypes" => Ok(Resolved::null()), //: [__Type!]
+            "possibleTypes" => Ok(type_def
+                .members()
+                .map(|m| resolve_named_ty(&self.ts, m.name()))
+                .collect::<Vec<_>>()
+                .into()), //: [__Type!]
             "enumValues" => Ok(Resolved::null()), //(includeDeprecated: Boolean = false): [__EnumValue!]
             "inputFields" => Ok(Resolved::null()), //(includeDeprecated: Boolean = false): [__InputValue!]
             "ofType" => Ok(Resolved::null()),      //: __Type
@@ -382,8 +386,15 @@ impl IspTypeResolver {
             "interfaces" => Ok(Resolved::null()), //: [__Type!]
             "possibleTypes" => Ok(Resolved::null()), //: [__Type!]
             "enumValues" => Ok(Resolved::null()), //(includeDeprecated: Boolean = false): [__EnumValue!]
-            "inputFields" => Ok(Resolved::null()), //(includeDeprecated: Boolean = false): [__InputValue!]
-            "ofType" => Ok(Resolved::null()),      //: __Type
+            "inputFields" => Ok(type_def
+                .fields()
+                .map(|f| IspInputValueResolver {
+                    ts: self.ts.clone(),
+                    input_value_def: f.clone(),
+                })
+                .collect::<Vec<_>>()
+                .into()), //(includeDeprecated: Boolean = false): [__InputValue!]
+            "ofType" => Ok(Resolved::null()),     //: __Type
             "specifiedByURL" => Ok(Resolved::null()), //: String TODO - not sure where to get this
             _ => Err(anyhow!("invalid list type field")),
         }
@@ -465,11 +476,12 @@ impl ObjectResolver for IspInputValueResolver {
             "name" => Resolved::string(self.input_value_def.name()),
             "description" => Resolved::string_opt(self.input_value_def.description()),
             "type" => resolve_ty(&self.ts, &self.input_value_def.ty()),
-            "defaultValue" => Resolved::string_opt(
-                self.input_value_def
-                    .default_value()
-                    .map(|v| format!("{:?}", v)), //TODO not sure what this represenation needs to be, debug for now
-            ),
+            "defaultValue" => Resolved::null(), //TODO need to figure this out
+            // Resolved::string_opt(
+            //     self.input_value_def
+            //         .default_value()
+            //         .map(|v| format!("{:?}", v)), //TODO not sure what this represenation needs to be, debug for now
+            // ),
             "isDeprecated" => self.input_value_def.resolve_is_deprecated(),
             "deprecationReason" => self.input_value_def.resolve_deprecation_reason(),
             _ => Resolved::null(),
