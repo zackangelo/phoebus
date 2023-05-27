@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-apollo-compiler = { git = "https://github.com/zackangelo/apollo-rs.git", branch = "more_muts" }
+apollo-compiler = { git = "https://github.com/zackangelo/apollo-rs.git", branch = "more_muts_092" }
 # apollo-compiler = { path = "../apollo-rs/crates/apollo-compiler" }
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1.0.153", features = ["derive"] }
