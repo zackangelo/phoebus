@@ -228,7 +228,7 @@ impl IspTypeResolver {
                 .directives()
                 .find(|d| d.name() == "specifiedBy")
                 .and_then(|d| match d.argument_by_name("url") {
-                    Some(hir::Value::String(s)) => Some(s.as_str()),
+                    Some(hir::Value::String { value: s, .. }) => Some(s.as_str()),
                     _ => None,
                 }),
         )
@@ -546,7 +546,7 @@ trait IspDirectives {
     fn deprecation_reason(&self) -> Option<&str> {
         self.deprecated_directive()
             .and_then(|d| match d.argument_by_name("reason") {
-                Some(hir::Value::String(s)) => Some(s.as_str()),
+                Some(hir::Value::String { value: s, .. }) => Some(s.as_str()),
                 _ => None,
             })
     }

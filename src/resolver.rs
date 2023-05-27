@@ -50,7 +50,7 @@ impl TryFrom<CtxArg> for String {
 
     fn try_from(value: CtxArg) -> std::result::Result<Self, Self::Error> {
         match value.0.value() {
-            hir::Value::String(s) => Ok(s.clone()),
+            hir::Value::String { value: s, .. } => Ok(s.clone()),
             _ => Err(anyhow!("invalid argument type")),
         }
     }
@@ -61,7 +61,9 @@ impl TryFrom<CtxArg> for i32 {
 
     fn try_from(value: CtxArg) -> std::result::Result<Self, Self::Error> {
         match value.0.value() {
-            hir::Value::Int(f) => f.to_i32_checked().ok_or(anyhow!("int conversion error")),
+            hir::Value::Int { value: f, .. } => {
+                f.to_i32_checked().ok_or(anyhow!("int conversion error"))
+            }
             _ => Err(anyhow!("invalid argument type")),
         }
     }
@@ -72,7 +74,7 @@ impl TryFrom<CtxArg> for f64 {
 
     fn try_from(value: CtxArg) -> std::result::Result<Self, Self::Error> {
         match value.0.value() {
-            hir::Value::Float(f) => Ok(f.get()),
+            hir::Value::Float { value: f, .. } => Ok(f.get()),
             _ => Err(anyhow!("invalid argument type")),
         }
     }
@@ -83,7 +85,7 @@ impl TryFrom<CtxArg> for bool {
 
     fn try_from(value: CtxArg) -> std::result::Result<Self, Self::Error> {
         match value.0.value() {
-            hir::Value::Boolean(f) => Ok(*f),
+            hir::Value::Boolean { value: f, .. } => Ok(*f),
             _ => Err(anyhow!("invalid argument type")),
         }
     }

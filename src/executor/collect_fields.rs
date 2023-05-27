@@ -122,7 +122,7 @@ fn should_skip(sel: &Selection) -> Result<bool> {
             .ok_or_else(|| anyhow!("if expression missing from @skip"))?;
 
         match if_arg {
-            hir::Value::Boolean(skip_if) => Ok(*skip_if),
+            hir::Value::Boolean { value: skip_if, .. } => Ok(*skip_if),
             hir::Value::Variable(_var) => todo!(),
             _ => Err(anyhow!("invalid @skip if argument")),
         }
@@ -140,7 +140,9 @@ fn should_include(sel: &Selection) -> Result<bool> {
             .ok_or_else(|| anyhow!("if expression missing from @include"))?;
 
         match if_arg {
-            hir::Value::Boolean(include_if) => Ok(*include_if),
+            hir::Value::Boolean {
+                value: include_if, ..
+            } => Ok(*include_if),
             hir::Value::Variable(_var) => todo!(),
             _ => Err(anyhow!("invalid @include if argument")),
         }
