@@ -82,6 +82,7 @@ impl Executor {
         query: &'a str,
         query_resolver: R,
         operation_name: Option<String>,
+        variables: HashMap<String, ConstValue>,
     ) -> Result<ConstValue> {
         let mut compiler = ApolloCompiler::new();
         compiler.set_type_system_hir(self.type_system.clone());
@@ -111,17 +112,21 @@ impl Executor {
             return Err(anyhow!("graphql had errors"));
         }
 
-        let ectx = ExecCtx::new(&compiler.db, self.exec_schema.clone());
+        //TODO implement coerce variables algorithm
+        // may already be implemented in a recent apollo-rs PR
+        //https://spec.graphql.org/draft/#sec-Coercing-Variable-Values
+
+        let ectx = ExecCtx::new(&compiler.db, self.exec_schema.clone(), variables);
 
         let result_fut = tokio::spawn(async move {
             let all_ops = compiler.db.all_operations();
-            let default_query_op = all_ops
+            let query_op = all_ops
                 .iter()
                 .find(|op| op.name() == operation_name.as_ref().map(|s| s.as_str()))
-                .ok_or_else(|| anyhow!("default query not found"))?;
+                .ok_or_else(|| anyhow!("query operation not found: {:?}", operation_name))?;
 
-            let sel_set = default_query_op.selection_set();
-            let query_type = default_query_op
+            let sel_set = query_op.selection_set();
+            let query_type = query_op
                 .object_type(&compiler.db)
                 .ok_or_else(|| anyhow!("query type not found"))?;
 
@@ -198,18 +203,27 @@ impl ExecSchema {
 #[derive(Clone)]
 pub struct ExecCtx {
     schema: Arc<ExecSchema>,
+    variables: Arc<HashMap<String, ConstValue>>,
     fragments: HashMap<String, FragmentDefinition>,
 }
 
 impl ExecCtx {
-    fn new<DB: HirDatabase>(db: &DB, schema: Arc<ExecSchema>) -> Self {
+    fn new<DB: HirDatabase>(
+        db: &DB,
+        schema: Arc<ExecSchema>,
+        variables: HashMap<String, ConstValue>,
+    ) -> Self {
         let mut fragments = HashMap::new();
 
         for (name, frag) in db.all_fragments().iter() {
             fragments.insert(name.clone(), frag.as_ref().clone());
         }
 
-        Self { fragments, schema }
+        Self {
+            fragments,
+            schema,
+            variables: Arc::new(variables),
+        }
     }
 
     fn field_definition(&self, field: &Field) -> Option<&FieldDefinition> {
@@ -240,6 +254,10 @@ impl ExecCtx {
         } else {
             false
         }
+    }
+
+    fn variables(&self) -> &HashMap<String, ConstValue> {
+        &self.variables
     }
 
     // fn find_interface_type_definition(&self, name: &str) -> Option<&InterfaceTypeDefinition> {

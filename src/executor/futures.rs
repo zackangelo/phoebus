@@ -124,6 +124,7 @@ fn resolve_field<'a>(
     Ok(Box::pin(
         async move {
             let ctx = Ctx {
+                variables: ectx.variables.clone(),
                 field: field.clone(),
             };
 
@@ -133,9 +134,9 @@ fn resolve_field<'a>(
             let v = resolve_to_value(ectx, field, resolved).await;
             let end = Instant::now();
             debug!(
-                "time self: {}μs, full: {}μs",
-                self_end.duration_since(start).as_micros(),
-                end.duration_since(start).as_micros()
+                self_us = self_end.duration_since(start).as_micros(),
+                full_us = end.duration_since(start).as_micros(),
+                "resolve complete",
             );
             v
         }

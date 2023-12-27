@@ -24,7 +24,7 @@ pub use indexmap;
 use indexmap::IndexMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 pub use serde_json::Number;
-pub use serializer::{to_value, SerializerError};
+// pub use serializer::{to_value, SerializerError};
 // pub use variables::Variables;
 
 /// A GraphQL name.

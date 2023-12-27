@@ -47,11 +47,20 @@ async fn graphql(
     executor: Extension<Executor>,
     Json(graphql_req): Json<http::GraphQLReq>,
 ) -> (StatusCode, Json<http::GraphQLResp>) {
+    let variables = graphql_req
+        .variables
+        .map(|vs| {
+            vs.into_iter()
+                .map(|(k, v)| (k, v.try_into().unwrap()))
+                .collect()
+        })
+        .unwrap_or_default();
     match executor
         .run(
             &graphql_req.query,
             resolvers::QueryResolver,
             graphql_req.operation_name,
+            variables,
         )
         .await
         .and_then(|r| r.into_json().map_err(anyhow::Error::new))

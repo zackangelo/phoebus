@@ -1,16 +1,63 @@
-use std::{fmt::Display, sync::Arc};
+use std::{collections::HashMap, fmt::Display, sync::Arc};
 
 use crate::value::{ConstValue, Name};
 use anyhow::{anyhow, Result};
-use apollo_compiler::hir;
+use apollo_compiler::hir::{self, Value};
 use async_trait::async_trait;
+use indexmap::IndexMap;
+use serde_json::Number;
 
 /// Resolver context
 pub struct Ctx {
+    pub(crate) variables: Arc<HashMap<String, ConstValue>>,
     pub(crate) field: Arc<hir::Field>,
 }
 
 impl Ctx {
+    //FIXME this is probably wrong and also would probably be easier to do
+    // in an upstream phase that eagerly resolves all the variables first
+    fn resolve_vars(&self, arg_value: &Value) -> Result<CtxArg> {
+        let const_v: ConstValue = match arg_value {
+            Value::Variable(var) => self
+                .variables
+                .get(var.name())
+                .ok_or_else(|| anyhow!("undefined variable: {}", var.name()))?
+                .clone(),
+            Value::Object { value, .. } => {
+                let fields: IndexMap<Name, ConstValue> = value
+                    .iter()
+                    .map(|(k, v)| {
+                        (
+                            Name::new(k.clone().src().to_owned()),
+                            self.resolve_vars(v).unwrap().0, //FIXME unwrap
+                        )
+                    })
+                    .collect::<IndexMap<_, _>>();
+                ConstValue::Object(fields)
+            }
+            Value::List { value, .. } => {
+                let values = value
+                    .iter()
+                    .map(|v| self.resolve_vars(v).unwrap().0) //FIXME unwrap()
+                    .collect::<Vec<ConstValue>>();
+
+                ConstValue::List(values)
+            }
+            Value::Boolean { value, .. } => ConstValue::Boolean(*value),
+            Value::String { value, .. } => ConstValue::String(value.clone()),
+            Value::Int { value, .. } => {
+                ConstValue::Number(Number::from(value.to_i32_checked().unwrap()))
+            }
+            Value::Float { value, .. } => {
+                ConstValue::Number(Number::from_f64(value.get()).unwrap())
+            }
+            Value::Enum { value, .. } => ConstValue::Enum(Name::new(value.src())),
+            Value::Null { .. } => ConstValue::Null,
+        };
+
+        Ok(CtxArg(const_v.clone()))
+    }
+
     pub fn try_arg<T: TryFrom<CtxArg>>(&self, name: &str) -> Result<T>
     where
         T::Error: Display,
@@ -22,36 +69,35 @@ impl Ctx {
             .find(|a| a.name() == name)
             .ok_or_else(|| anyhow!("argument not found: {}", name))?;
 
-        let arg = arg.clone(); //TODO remove find/clone by passing in a map
-        T::try_from(CtxArg(arg)).map_err(|err| anyhow!("argument conversion error: {}", err))
+        let arg_const_v = self.resolve_vars(arg.value())?;
+
+        T::try_from(arg_const_v).map_err(|err| anyhow!("argument conversion error: {}", err))
     }
 
-    pub fn arg<T: TryFrom<CtxArg>>(&self, name: &str) -> Option<T> {
-        let arg = self
-            .field
-            .arguments()
-            .into_iter()
-            .find(|a| a.name() == name);
-
-        let arg = arg.cloned(); //TODO remove find/clone by passing in a map
-
-        match arg {
-            Some(arg) => T::try_from(CtxArg(arg)).ok(),
-            None => None,
+    pub fn arg<T: TryFrom<CtxArg>>(&self, name: &str) -> Option<T>
+    where
+        T::Error: Display,
+    {
+        match self.try_arg(name) {
+            Ok(v) => Some(v),
+            Err(err) => {
+                tracing::error!("argument error: {}", err);
+                None
+            } // _ => None,
         }
     }
 }
 
 #[repr(transparent)]
-pub struct CtxArg(hir::Argument);
+pub struct CtxArg(ConstValue);
 
 impl TryFrom<CtxArg> for String {
     type Error = anyhow::Error;
 
     fn try_from(value: CtxArg) -> std::result::Result<Self, Self::Error> {
-        match value.0.value() {
-            hir::Value::String { value: s, .. } => Ok(s.clone()),
-            _ => Err(anyhow!("invalid argument type")),
+        match value.0 {
+            ConstValue::String(s) => Ok(s),
+            _ => Err(anyhow!("invalid argument type, expected string")),
         }
     }
 }
@@ -60,11 +106,12 @@ impl TryFrom<CtxArg> for i32 {
     type Error = anyhow::Error;
 
     fn try_from(value: CtxArg) -> std::result::Result<Self, Self::Error> {
-        match value.0.value() {
-            hir::Value::Int { value: f, .. } => {
-                f.to_i32_checked().ok_or(anyhow!("int conversion error"))
+        match value.0 {
+            ConstValue::Number(num) if num.is_i64() => {
+                let inum = num.as_i64().unwrap();
+                Ok(inum.try_into()?)
             }
-            _ => Err(anyhow!("invalid argument type")),
+            _ => Err(anyhow!("invalid argument type, expected integer")),
         }
     }
 }
@@ -73,9 +120,12 @@ impl TryFrom<CtxArg> for f64 {
     type Error = anyhow::Error;
 
     fn try_from(value: CtxArg) -> std::result::Result<Self, Self::Error> {
-        match value.0.value() {
-            hir::Value::Float { value: f, .. } => Ok(f.get()),
-            _ => Err(anyhow!("invalid argument type")),
+        match value.0 {
+            ConstValue::Number(n) if n.is_f64() => {
+                let num_f = n.as_f64().unwrap();
+                Ok(num_f)
+            }
+            _ => Err(anyhow!("invalid argument type, expected float")),
         }
     }
 }
@@ -84,9 +134,9 @@ impl TryFrom<CtxArg> for bool {
     type Error = anyhow::Error;
 
     fn try_from(value: CtxArg) -> std::result::Result<Self, Self::Error> {
-        match value.0.value() {
-            hir::Value::Boolean { value: f, .. } => Ok(*f),
-            _ => Err(anyhow!("invalid argument type")),
+        match value.0 {
+            ConstValue::Boolean(b) => Ok(b),
+            _ => Err(anyhow!("invalid argument type, expected bool")),
         }
     }
 }

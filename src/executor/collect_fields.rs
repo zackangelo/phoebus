@@ -3,7 +3,9 @@ use apollo_compiler::hir::{
     self, Directive, Field, ObjectTypeDefinition, Selection, SelectionSet, TypeDefinition,
 };
 use indexmap::IndexMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
+
+use crate::ConstValue;
 
 use super::ExecCtx;
 
@@ -25,7 +27,7 @@ pub fn collect_fields(
         grouped_fields: &mut IndexMap<String, Vec<Arc<Field>>>,
     ) -> Result<()> {
         for sel in sel_set.selection() {
-            if should_skip(sel)? || !should_include(sel)? {
+            if should_skip(sel, ectx.variables())? || !should_include(sel, ectx.variables())? {
                 continue;
             }
 
@@ -113,7 +115,7 @@ fn include_directive(selection: &Selection) -> Option<&Directive> {
         .find(|d| d.name() == "include")
 }
 
-fn should_skip(sel: &Selection) -> Result<bool> {
+fn should_skip(sel: &Selection, variables: &HashMap<String, ConstValue>) -> Result<bool> {
     let skip_directive = skip_directive(sel);
 
     if let Some(skip) = skip_directive {
@@ -123,7 +125,16 @@ fn should_skip(sel: &Selection) -> Result<bool> {
 
         match if_arg {
             hir::Value::Boolean { value: skip_if, .. } => Ok(*skip_if),
-            hir::Value::Variable(_var) => todo!(),
+            hir::Value::Variable(var) => {
+                let var_name = var.name();
+                let var_value = variables
+                    .get(var_name)
+                    .ok_or_else(|| anyhow!("undefined variable: {}", var_name))?;
+                match var_value {
+                    ConstValue::Boolean(b) => Ok(*b),
+                    _ => Err(anyhow!("invalid @skip if argument")),
+                }
+            }
             _ => Err(anyhow!("invalid @skip if argument")),
         }
     } else {
@@ -131,7 +142,7 @@ fn should_skip(sel: &Selection) -> Result<bool> {
     }
 }
 
-fn should_include(sel: &Selection) -> Result<bool> {
+fn should_include(sel: &Selection, variables: &HashMap<String, ConstValue>) -> Result<bool> {
     let include_directive = include_directive(sel);
 
     if let Some(include) = include_directive {
@@ -143,7 +154,16 @@ fn should_include(sel: &Selection) -> Result<bool> {
             hir::Value::Boolean {
                 value: include_if, ..
             } => Ok(*include_if),
-            hir::Value::Variable(_var) => todo!(),
+            hir::Value::Variable(var) => {
+                let var_name = var.name();
+                let var_value = variables
+                    .get(var_name)
+                    .ok_or_else(|| anyhow!("undefined variable: {}", var_name))?;
+                match var_value {
+                    ConstValue::Boolean(b) => Ok(*b),
+                    _ => Err(anyhow!("invalid @include if argument")),
+                }
+            }
             _ => Err(anyhow!("invalid @include if argument")),
         }
     } else {
